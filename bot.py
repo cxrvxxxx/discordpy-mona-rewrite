@@ -1,6 +1,5 @@
 import discord
 import os
-import cogs
 
 from glob import glob
 from discord.ext import commands
@@ -39,7 +38,7 @@ async def on_ready():
     # load cogs from /cogs
     for name in cog_names:
         client.load_extension(f'cogs.{name}')
-        console_log(f"Loaded {name} cog")
+        console_log(f"Loaded '{name}' cog")
 
 # run bot
 client.run(token)
