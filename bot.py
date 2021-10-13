@@ -5,10 +5,19 @@ from glob import glob
 from discord.ext import commands
 from dotenv import load_dotenv
 from logger import console_log
+from config import Config
 
 # load and read token from .env
 load_dotenv()
 token = os.getenv('TOKEN')
+
+# init dirs
+dirs = [
+    'config'
+]
+for dir in dirs:
+    if not os.path.exists(dir):
+        os.mkdir(dir)
 
 # list files in /cogs
 cog_names = glob("./cogs/*.py")
@@ -22,6 +31,12 @@ intents.presences = False
 
 # define client
 client = commands.AutoShardedBot(command_prefix='$', help_command=None, intents=intents)
+client.config = {}
+
+# load cogs from /cogs
+for name in cog_names:
+    client.load_extension(f'cogs.{name}')
+    console_log(f"Loaded '{name}' cog")
 
 # startup on initialization
 @client.event
@@ -35,10 +50,10 @@ async def on_ready():
         )
     )
 
-    # load cogs from /cogs
-    for name in cog_names:
-        client.load_extension(f'cogs.{name}')
-        console_log(f"Loaded '{name}' cog")
+    # init per guild config
+    for guild in client.guilds:
+        config_path = f'./config/{guild.id}.ini'
+        client.config[guild.id] = Config(config_path)
 
 # run bot
 client.run(token)
