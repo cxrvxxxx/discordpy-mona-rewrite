@@ -29,5 +29,8 @@ async def on_ready():
         )
     )
 
+    for cog in cogs:
+        client.load_extension(f'cogs.{cog.__name__}')
+
 # run bot
 client.run(token)
