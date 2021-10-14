@@ -32,6 +32,8 @@ intents.presences = False
 
 # define client
 client = commands.AutoShardedBot(command_prefix='$', help_command=None, intents=intents)
+
+# client.property
 client.config = {}
 
 # load cogs from /cogs
