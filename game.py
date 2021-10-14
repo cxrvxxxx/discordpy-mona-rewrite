@@ -6,7 +6,7 @@ import os
 # ==== methods =====
 # game.register(uid)
 # game.work(uid, multiplier)
-# game.rob(uid, author_id, target_id, multiplier)
+# game.rob(author_id, target_id, multiplier)
 # game.donate(author_id, target_id, amount, multiplier)
 # game.charity(uid, amount, multiplier)
 
@@ -48,8 +48,10 @@ class Game:
 
         amount = round(random.randint(user.level, user.level * 3) * multiplier)
         
-        user.add_cash(self.conn, self.c, amount)
-        user.add_exp(self.conn, self.c, multiplier)
+        cash = user.add_cash(self.conn, self.c, amount)
+        exp, levelup = user.add_exp(self.conn, self.c, multiplier)
+
+        return amount, exp, levelup, cash
 
     def rob(self, author_id, target_id, multiplier=0.9):
         user = User.get(self.conn, self.c, author_id)
@@ -59,11 +61,20 @@ class Game:
             raise UserNotFound
 
         amount = round(math.log(target.cash, 1.01) * multiplier)
+        x = random.randint(0, 9)
 
-        user.add_cash(self.conn, self.c, amount)
-        user.add_exp(self.conn, self.c, multiplier)
-
-        target.take_cash(self.conn, self.c, amount)
+        if x > 5:
+            cash = user.take_cash(self.conn, self.c, amount)
+            failed = True
+            exp = 0
+            levelup = False
+        else:
+            cash = user.add_cash(self.conn, self.c, amount)
+            exp, levelup = user.add_exp(self.conn, self.c, multiplier)
+    
+            cash = target.take_cash(self.conn, self.c, amount)
+            failed = False
+        return failed, cash, exp, levelup
 
     def donate(self, author_id, target_id, amount, multiplier=1):
         user = User.get(self.conn, self.c, author_id)
@@ -143,24 +154,41 @@ class User:
     def take_cash(self, conn, c, amount):
         self.cash = self.cash - amount
         self.update(conn, c)
+        return self.cash
 
     def add_cash(self, conn, c, amount):
         self.cash = self.cash + amount
         self.update(conn, c)
+        return self.cash
 
     def set_cash(self, conn, c, amount):
         self.cash = amount
         self.update(conn, c)
+        return self.cash
 
     def add_exp(self, conn, c, multiplier):
         amount = round(1 + self.level * 2 * multiplier)
         self.exp = self.exp + amount
+
+        if self.exp > self.exp_to_levelup:
+            levelup = True
+
+            while self.exp > self.exp_to_levelup:
+                max_exp = self.exp_to_levelup
+                self.exp = self.exp = max_exp
+                self.level = self.level + 1
+        else:
+            levelup = False
+            
         self.update(conn, c)
+        return amount, levelup
 
     def set_exp(self, conn, c, amount):
         self.exp = amount
         self.update(conn, c)
+        return self.exp
 
     def set_level(self, conn, c, amount):
         self.level = amount
         self.update(conn, c)
+        return self.level

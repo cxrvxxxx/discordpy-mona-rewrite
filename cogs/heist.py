@@ -10,6 +10,17 @@ class Heist(commands.Cog):
     def __init__(self, client):
         self.client = client
 
+    async def levelup(self, ctx):
+        embed = discord.Embed(
+            title='Yay!',
+            description=f'{ctx.author.mention} has leveled up!',
+            colour=colors.green
+        )
+        embed.set_thumbnail(
+            url='https://chpic.su/_data/stickers/p/Paimon_Emoji_Set/Paimon_Emoji_Set_006.webp'
+        )
+        await ctx.send(embed=embed)
+
     @commands.Cog.listener()
     async def on_ready(self):
         # init game
@@ -38,7 +49,7 @@ class Heist(commands.Cog):
             embed.set_thumbnail(url='https://chpic.su/_data/stickers/p/Paimon_Emoji_Set/Paimon_Emoji_Set_005.webp')
         await ctx.send(embed=embed)
 
-    @commands.command()
+    @commands.command(aliases=["me", "stats"])
     async def profile(self, ctx, member: discord.Member = None):
         if member:
             ctx.author = member
@@ -53,6 +64,48 @@ class Heist(commands.Cog):
             embed.add_field(name='Cash', value=f"${user.cash}", inline=True)
             embed.set_thumbnail(url=ctx.author.avatar_url)
             await ctx.send(embed=embed)
+
+    @commands.command(aliases=["w"])
+    @commands.cooldown(1, 300, commands.BucketType.member)
+    async def work(self, ctx):
+        game = games[ctx.guild.id]
+        
+        amount, exp, levelup, cash = game.work(ctx.author.id)
+
+        if levelup:
+            await self.levelup(ctx)
+
+        await ctx.send(
+            embed = discord.Embed(
+                description = f'You have earned **${amount}** and **{exp}** exp. Your new balance is **${cash}**.',
+                colour = colors.gold
+            )
+        )
+    
+    @commands.command()
+    @commands.cooldown(1, 90, commands.BucketType.member)
+    async def rob(self, ctx, member: discord.Member):
+        game = games[ctx.guild.id]
+        name = member.nick if member.nick else member.name
+
+        failed, cash, exp, levelup = game.rob(ctx.author.id, member.id)
+
+        if levelup:
+            await self.levelup(ctx)
+
+        if failed:
+            await ctx.send(
+                embed = discord.Embed(
+                    description = f'Your plan to rob **{name}** has failed and you have been fined **${cash}** for it.',
+                    colour = colors.red
+                )
+            )
+        else:
+            await ctx.send(
+                embed = discord.Embed(
+                    description = f'Your just robbed **{name}** for **${cash}** and earned **{exp}**.'
+                )
+            )
 
 def setup(client):
     client.add_cog(Heist(client))
