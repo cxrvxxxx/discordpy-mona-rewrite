@@ -13,7 +13,8 @@ token = os.getenv('TOKEN')
 
 # init dirs
 dirs = [
-    'config'
+    'config',
+    'playlists'
 ]
 for dir in dirs:
     if not os.path.exists(dir):
@@ -41,7 +42,7 @@ for name in cog_names:
 # startup on initialization
 @client.event
 async def on_ready():
-    print(f"Connected to discord as {client.user}.")
+    console_log(f"Connected to discord as {client.user}.")
     # set activity status
     await client.change_presence(
         activity = discord.Activity(
