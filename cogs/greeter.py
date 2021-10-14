@@ -22,12 +22,20 @@ class Greeter(commands.Cog):
 
     @commands.Cog.listener()
     async def on_member_join(self, member):
-        guild_id = member.guild.id
-        config = self.config[guild_id]
+        guild = member.guild
+        config = self.config[guild.id]
 
-        pass
+        default_greet_message = f"Welcome to **{guild.name}**, {member.mention}!"
+        use_custom_message = config.getboolean(__name__, 'use_custom_message')
+        custom_message = config.get(__name__, 'custom_message')
+        welcome_channel_id = config.getint(__name__, 'welcome_channel')
+        channel = self.client.get_channel(welcome_channel_id)
+
+        if use_custom_message and custom_message and channel:
+            await channel.send(default_greet_message + custom_message)
 
     @commands.command()
+    @commands.has_permissions(manage_channels=True)
     async def setgreeting(self, ctx, *, message):
         config = self.config[ctx.guild.id]
 
@@ -48,6 +56,7 @@ class Greeter(commands.Cog):
         )
 
     @commands.command()
+    @commands.has_permissions(manage_channels=True)
     async def setgreetmode(self, ctx):
         config = self.config[ctx.guild.id]
         value = config.getboolean(__name__, 'use_custom_message')
@@ -58,6 +67,20 @@ class Greeter(commands.Cog):
         await ctx.send(
             embed = discord.Embed(
                 description = f'Setting: [**use_custom_message**] changed to [**{value}**].',
+                colour = colors.blue
+            )
+        )
+
+    @commands.command()
+    @commands.has_permissions(manage_channels=True)
+    async def setgreetchannel(self, ctx):
+        config = self.config[ctx.guild.id]
+
+        config.set(__name__, 'welcome_channel', ctx.channel.id)
+
+        await ctx.send(
+            embed = discord.Embed(
+                description = "This channel will now be used for welcome messages.",
                 colour = colors.blue
             )
         )
