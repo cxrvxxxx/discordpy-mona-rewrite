@@ -2,6 +2,7 @@ import discord
 import colors
 
 from discord.ext import commands
+from checks import is_whitelisted
 
 class Whitelist(commands.Cog):
     def __init__(self, client):
@@ -9,6 +10,7 @@ class Whitelist(commands.Cog):
         self.config = client.config
 
     @commands.command()
+    @commands.check(is_whitelisted)
     async def whitelist(self, ctx, member: discord.Member, access=0):
         config = self.config[ctx.guild.id]
         name = member.nick if member.nick else member.name
@@ -36,6 +38,7 @@ class Whitelist(commands.Cog):
         )
 
     @commands.command()
+    @commands.check(is_whitelisted)
     async def unwhitelist(self, ctx, member: discord.Member):
         config = self.config[ctx.guild.id]
         name = member.nick if member.nick else member.name
