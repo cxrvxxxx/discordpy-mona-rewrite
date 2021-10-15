@@ -11,6 +11,7 @@ from discord.ext import commands
 # game.rob(author_id, target_id, multiplier)
 # game.donate(author_id, target_id, amount, multiplier)
 # game.charity(uid, amount, multiplier)
+# game.gamble(uid, amount, multiplier)
 
 # define exceptions
 class GameExceptions:
@@ -50,6 +51,10 @@ class Game:
     def work(self, uid, multiplier=1):
         user = User.get(self.conn, self.c, uid)
 
+        # ensure argument type
+        multiplier = float(multiplier)
+
+        # validation
         if not user:
             raise GameExceptions.UserNotFound("You must be registered to do this.")
 
@@ -64,11 +69,14 @@ class Game:
         user = User.get(self.conn, self.c, author_id)
         target = User.get(self.conn, self.c, target_id)
 
+        # ensure argument type
+        multiplier = float(multiplier)
+
+        # validation
         if not user:
             raise GameExceptions.UserNotFound("You must be registered to do this.")
         if not target:
             raise GameExceptions.UserNotFound("User is not registered.")
-
         if target.cash <= 0:
             raise GameExceptions.InvalidRobTarget("This person has nothing you can take")
 
@@ -93,11 +101,15 @@ class Game:
         user = User.get(self.conn, self.c, author_id)
         target = User.get(self.conn, self.c, target_id)
 
+        # ensure argument type
+        amount = int(amount)
+        multiplier = float(multiplier)
+
+        # validation
         if not user:
             raise GameExceptions.UserNotFound("You must be registered to do this.")
         if not target:
             raise GameExceptions.UserNotFound("User is not registered.")
-
         if amount > user.cash or amount < 0:
             raise GameExceptions.InvalidAmount("Amount specified exceeds available cash or is zero.")
 
@@ -111,14 +123,49 @@ class Game:
     def charity(self, uid, amount, multiplier=0.9):
         user = User.get(self.conn, self.c, uid)
 
+        # ensure argument type
+        amount = int(amount)
+        multiplier = float(multiplier)
+
+        # validation
         if not user:
             raise GameExceptions.UserNotFound("You must be registered to do this.")
-
         if amount > user.cash or amount < 0:
             raise GameExceptions.InvalidAmount("Amount specified exceeds available cash or is zero.")
 
-        user.take_cash(self.conn, self.c, amount)
-        user.add_exp(self.conn, self.c, multiplier)
+        cash = user.take_cash(self.conn, self.c, amount)
+        exp, levelup = user.add_exp(self.conn, self.c, multiplier, amount)
+
+        return {"cash": cash, "exp": exp, "levelup": levelup}
+
+    def gamble(self, uid, amount, multiplier=1):
+        user = User.get(self.conn, self.c, uid)
+
+        # ensure argument type
+        amount = int(amount)
+        multiplier = float(multiplier)
+
+        # validation
+        if not user:
+            raise GameExceptions.UserNotFound("You must be registered to do this.")
+        if amount > user.cash or amount < 0:
+            raise GameExceptions.InvalidAmount("Amount specified exceeds available cash or is zero.")
+
+        # limits
+        lower_limit = round(amount * 0.1)
+        upper_limit = round(amount * 2.0)
+
+        value = random.randint(lower_limit, upper_limit)
+        win_value = random.randint(0, 100)
+
+        if win_value > 49:
+            cash = user.add_cash(self.conn, self.c, value)
+            win = True
+        else:
+            cash = user.take_cash(self.conn, self.c, value)
+            win = False
+
+        return {"amount": value, "cash": cash, "win": win}
 
 class User:
     def __init__(self, uid, level=1, exp=0, cash=0):

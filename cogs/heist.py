@@ -1,5 +1,6 @@
 import discord
 import colors
+import asyncio
 
 from discord.ext import commands
 from game import Game, User, GameExceptions
@@ -45,7 +46,7 @@ class Heist(commands.Cog):
 
     @commands.command()
     async def register(self, ctx):
-        game = games[ctx.guild.id]
+        game = games.get(ctx.guild.id)
 
         user = game.register(ctx.author.id)
 
@@ -70,7 +71,7 @@ class Heist(commands.Cog):
         if member:
             ctx.author = member
 
-        game = games[ctx.guild.id]
+        game = games.get(ctx.guild.id)
         user = User.get(game.conn, game.c, ctx.author.id)
 
         if user:
@@ -84,9 +85,8 @@ class Heist(commands.Cog):
     @commands.command(aliases=["w"])
     @commands.cooldown(1, 300, commands.BucketType.member)
     async def work(self, ctx):
-        game = games[ctx.guild.id]
+        game = games.get(ctx.guild.id)
         
-
         data = game.work(ctx.author.id)
         amount = data.get('amount')
         cash = data.get('cash')
@@ -106,7 +106,7 @@ class Heist(commands.Cog):
     @commands.command()
     @commands.cooldown(1, 90, commands.BucketType.member)
     async def rob(self, ctx, member: discord.Member):
-        game = games[ctx.guild.id]
+        game = games.get(ctx.guild.id)
         name = member.nick if member.nick else member.name
 
         if member == ctx.author:
@@ -146,7 +146,7 @@ class Heist(commands.Cog):
     @commands.command()
     @commands.cooldown(1, 30, commands.BucketType.member)
     async def donate(self, ctx, member: discord.Member, amount):
-        game = games[ctx.guild.id]
+        game = games.get(ctx.guild.id)
         name =  member.nick if member.nick else member.name
 
         amount = int(amount)
@@ -164,6 +164,81 @@ class Heist(commands.Cog):
                 colour = colors.gold
             )
         )
+
+    @commands.command()
+    async def charity(self, ctx, amount):
+        game = games.get(ctx.guild.id)
+        name = ctx.author.nick if ctx.author.nick else ctx.author.name
+
+        data = game.charity(ctx.author.id, amount)
+        exp = data.get('exp')
+
+        levelup = data.get('levelup')
+        if levelup:
+            self.levelup(ctx)
+
+        await ctx.send(
+            embed = discord.Embed(
+                description = f"**{name}** just donated **${amount}** to charity and earned **{exp}** exp.",
+                colour = colors.blue
+            )
+        )
+
+    @commands.command()
+    async def gamble(self, ctx, amount):
+        game = games.get(ctx.guild.id)
+
+        embed = discord.Embed(
+            description=f'{ctx.author.mention}, are you sure you want to gamble for **${amount}**?',
+            colour = colors.red,
+        )
+
+        check_emoji = '✅'
+        x_emoji = '❌'
+
+        verify = await ctx.send(embed=embed)
+        await verify.add_reaction(check_emoji)
+        await verify.add_reaction(x_emoji)
+
+        try:
+            reaction, user = await self.client.wait_for(
+                'reaction_add',
+                timeout=10,
+                check=lambda reaction, user: user == ctx.author
+            )
+            if str(reaction.emoji) == x_emoji:
+                await verify.delete()
+                embed = discord.Embed(
+                    description = "Gamble cancelled.",
+                    colour = colors.red
+                )
+
+                await ctx.send(embed=embed, delete_after=10)
+                return
+
+            if str(reaction.emoji) == check_emoji:
+                await verify.delete()
+
+                data = game.gamble(ctx.author.id, amount)
+                win = data.get('win')
+                amount = data.get('amount')
+
+                if win:
+                    end_msg = discord.Embed(
+                        description=f'Congratulations, {ctx.author.mention}! You gambled and won **${amount}**.',
+                        colour = colors.gold
+                    )
+                else:
+                    end_msg = discord.Embed(
+                        description=f'Yikes, {ctx.author.mention}! You gambled and lost **${amount}**.',
+                        colour = colors.red
+                    )
+
+                end_msg.set_author(name=ctx.author.nick if ctx.author.nick else ctx.author.name, icon_url=ctx.author.avatar_url)
+                await ctx.send(embed=end_msg)
+        except asyncio.TimeoutError:
+            await verify.delete()
+            await ctx.send('Cancelling due to timeout.')
 
 def setup(client):
     client.add_cog(Heist(client))
