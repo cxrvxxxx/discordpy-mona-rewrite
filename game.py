@@ -19,6 +19,10 @@ class InvalidAmount(Exception):
     """Amount specified is invalid"""
     pass
 
+class InvalidRobTarget(Exception):
+    """Cannot rob user with zero cash"""
+    pass
+
 class Game:
     def __init__(self, db):
         # init dir
@@ -51,16 +55,19 @@ class Game:
         cash = user.add_cash(self.conn, self.c, amount)
         exp, levelup = user.add_exp(self.conn, self.c, multiplier)
 
-        return amount, exp, levelup, cash
+        return {"amount": amount, "cash": cash, "exp": exp, "levelup": levelup}
 
     def rob(self, author_id, target_id, multiplier=0.9):
         user = User.get(self.conn, self.c, author_id)
         target = User.get(self.conn, self.c, target_id)
 
-        if not user:
+        if not user or not target:
             raise UserNotFound
 
-        amount = round(math.log(target.cash, 1.01) * multiplier)
+        if target.cash == 0:
+            raise InvalidRobTarget
+
+        amount = round(random.randint(1, target.cash * 0.20) * multiplier)
         x = random.randint(0, 9)
 
         if x > 5:
@@ -74,7 +81,8 @@ class Game:
     
             cash = target.take_cash(self.conn, self.c, amount)
             failed = False
-        return failed, cash, exp, levelup
+
+        return {"failed": failed, "amount": amount, "cash": cash, "exp": exp, "levelup": levelup}
 
     def donate(self, author_id, target_id, amount, multiplier=1):
         user = User.get(self.conn, self.c, author_id)
@@ -179,7 +187,7 @@ class User:
                 self.level = self.level + 1
         else:
             levelup = False
-            
+
         self.update(conn, c)
         return amount, levelup
 

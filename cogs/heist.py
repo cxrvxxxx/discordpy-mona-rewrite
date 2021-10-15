@@ -3,8 +3,10 @@ import colors
 
 from discord.ext import commands
 from game import Game, User
+from logger import console_log
 
 games = {}
+settings = {}
 
 class Heist(commands.Cog):
     def __init__(self, client):
@@ -70,7 +72,15 @@ class Heist(commands.Cog):
     async def work(self, ctx):
         game = games[ctx.guild.id]
         
-        amount, exp, levelup, cash = game.work(ctx.author.id)
+        try:
+            data = game.work(ctx.author.id)
+            amount = data.get('amount')
+            cash = data.get('cash')
+            exp = data.get('exp')
+            levelup = data.get('levelup')
+        except Exception as e:
+            console_log(e)
+            return
 
         if levelup:
             await self.levelup(ctx)
@@ -88,7 +98,31 @@ class Heist(commands.Cog):
         game = games[ctx.guild.id]
         name = member.nick if member.nick else member.name
 
-        failed, cash, exp, levelup = game.rob(ctx.author.id, member.id)
+        if member == ctx.author:
+            await ctx.send(
+                embed = discord.Embed(
+                    description = "You cannot rob yourself.",
+                    colour = colors.red
+                )
+            )
+            return
+
+        try:
+            data = game.rob(ctx.author.id, member.id)
+            failed = data.get('failed')
+            amount = data.get('amount')
+            cash = data.get('cash')
+            exp = data.get('exp')
+            levelup = data.get('levelup')
+        except Exception as e:
+            await ctx.send(
+                embed = discord.Embed(
+                    description = "You cannot rob this user.",
+                    colour = colors.red
+                )
+            )
+            console_log(e)
+            return
 
         if levelup:
             await self.levelup(ctx)
@@ -96,14 +130,15 @@ class Heist(commands.Cog):
         if failed:
             await ctx.send(
                 embed = discord.Embed(
-                    description = f'Your plan to rob **{name}** has failed and you have been fined **${cash}** for it.',
+                    description = f'Your plan to rob **{name}** has failed and you have been fined **${amount}** for it. Your new balance is **${cash}**.',
                     colour = colors.red
                 )
             )
         else:
             await ctx.send(
                 embed = discord.Embed(
-                    description = f'Your just robbed **{name}** for **${cash}** and earned **{exp}**.'
+                    description = f'Your just robbed **{name}** for **${amount}** and earned **{exp}** exp. Your new balance is **${cash}**.',
+                    colour = colors.gold
                 )
             )
 
