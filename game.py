@@ -3,6 +3,8 @@ import math
 import random
 import os
 
+from discord.ext import commands
+
 # ==== methods =====
 # game.register(uid)
 # game.work(uid, multiplier)
@@ -11,17 +13,18 @@ import os
 # game.charity(uid, amount, multiplier)
 
 # define exceptions
-class UserNotFound(Exception):
-    """Could not find user in database"""
-    pass
+class GameExceptions:
+    class UserNotFound(commands.CommandError):
+        """Could not find user in database"""
+        pass
 
-class InvalidAmount(Exception):
-    """Amount specified is invalid"""
-    pass
+    class InvalidAmount(commands.CommandError):
+        """Amount specified is invalid"""
+        pass
 
-class InvalidRobTarget(Exception):
-    """Cannot rob user with zero cash"""
-    pass
+    class InvalidRobTarget(commands.CommandError):
+        """Cannot rob user with zero cash"""
+        pass
 
 class Game:
     def __init__(self, db):
@@ -48,7 +51,7 @@ class Game:
         user = User.get(self.conn, self.c, uid)
 
         if not user:
-            raise UserNotFound
+            raise GameExceptions.UserNotFound("You must be registered to do this.")
 
         amount = round(random.randint(user.level, user.level * 3) * multiplier)
         
@@ -61,13 +64,15 @@ class Game:
         user = User.get(self.conn, self.c, author_id)
         target = User.get(self.conn, self.c, target_id)
 
-        if not user or not target:
-            raise UserNotFound
+        if not user:
+            raise GameExceptions.UserNotFound("You must be registered to do this.")
+        if not target:
+            raise GameExceptions.UserNotFound("User is not registered.")
 
-        if target.cash == 0:
-            raise InvalidRobTarget
+        if target.cash <= 0:
+            raise GameExceptions.InvalidRobTarget("This person has nothing you can take")
 
-        amount = round(random.randint(1, target.cash * 0.20) * multiplier)
+        amount = round(random.randint(1, round(target.cash * 0.20)) * multiplier)
         x = random.randint(0, 9)
 
         if x > 5:
@@ -88,25 +93,29 @@ class Game:
         user = User.get(self.conn, self.c, author_id)
         target = User.get(self.conn, self.c, target_id)
 
-        if not user or not target:
-            raise UserNotFound
+        if not user:
+            raise GameExceptions.UserNotFound("You must be registered to do this.")
+        if not target:
+            raise GameExceptions.UserNotFound("User is not registered.")
 
         if amount > user.cash or amount < 0:
-            raise InvalidAmount
+            raise GameExceptions.InvalidAmount("Amount specified exceeds available cash or is zero.")
 
-        user.take_cash(self.conn, self.c, amount)
-        user.add_exp(self.conn, self.c, multiplier)
+        cash = user.take_cash(self.conn, self.c, amount)
+        exp, levelup = user.add_exp(self.conn, self.c, multiplier, amount)
 
-        target.add_cash(self.conn, self.c, amount)
+        cash = target.add_cash(self.conn, self.c, amount)
+        
+        return {"amount": amount, "cash": cash, "exp": exp, "levelup": levelup}
 
     def charity(self, uid, amount, multiplier=0.9):
         user = User.get(self.conn, self.c, uid)
 
         if not user:
-            raise UserNotFound
+            raise GameExceptions.UserNotFound("You must be registered to do this.")
 
         if amount > user.cash or amount < 0:
-            raise InvalidAmount
+            raise GameExceptions.InvalidAmount("Amount specified exceeds available cash or is zero.")
 
         user.take_cash(self.conn, self.c, amount)
         user.add_exp(self.conn, self.c, multiplier)
@@ -141,10 +150,10 @@ class User:
             # proceed only when unique uid            
             if not self.get(conn, c, self.uid):
                 c.execute("INSERT INTO users VALUES (:uid, :level, :exp, :cash)", {
-                    "uid": self.uid,
-                    "level": self.level,
-                    "exp": self.exp,
-                    "cash": self.cash
+                    "uid": int(self.uid),
+                    "level": int(self.level),
+                    "exp": int(self.exp),
+                    "cash": int(self.cash)
                 })
                 return self.get(conn, c, self.uid)
 
@@ -153,29 +162,30 @@ class User:
             # proceed only when existent user
             if self.get(conn, c, self.uid):
                 c.execute("UPDATE users SET level=:level, exp=:exp, cash=:cash WHERE uid=:uid", {
-                    "level": self.level,
-                    "exp": self.exp,
-                    "cash": self.cash,
-                    "uid": self.uid
+                    "level": int(self.level),
+                    "exp": int(self.exp),
+                    "cash": int(self.cash),
+                    "uid": int(self.uid)
                 })
 
-    def take_cash(self, conn, c, amount):
+    def take_cash(self, conn, c, amount: int):
         self.cash = self.cash - amount
         self.update(conn, c)
         return self.cash
 
-    def add_cash(self, conn, c, amount):
+    def add_cash(self, conn, c, amount: int):
         self.cash = self.cash + amount
         self.update(conn, c)
         return self.cash
 
-    def set_cash(self, conn, c, amount):
+    def set_cash(self, conn, c, amount: int):
         self.cash = amount
         self.update(conn, c)
         return self.cash
 
-    def add_exp(self, conn, c, multiplier):
-        amount = round(1 + self.level * 2 * multiplier)
+    def add_exp(self, conn, c, multiplier, override_value=None):
+        base = math.log(override_value, 1.1) if override_value else self.level
+        amount = round(1 + base * 2 * multiplier)
         self.exp = self.exp + amount
 
         if self.exp > self.exp_to_levelup:
@@ -191,12 +201,12 @@ class User:
         self.update(conn, c)
         return amount, levelup
 
-    def set_exp(self, conn, c, amount):
+    def set_exp(self, conn, c, amount: int):
         self.exp = amount
         self.update(conn, c)
         return self.exp
 
-    def set_level(self, conn, c, amount):
+    def set_level(self, conn, c, amount: int):
         self.level = amount
         self.update(conn, c)
         return self.level

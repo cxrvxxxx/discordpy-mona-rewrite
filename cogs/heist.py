@@ -2,7 +2,7 @@ import discord
 import colors
 
 from discord.ext import commands
-from game import Game, User
+from game import Game, User, GameExceptions
 from logger import console_log
 
 games = {}
@@ -11,6 +11,20 @@ settings = {}
 class Heist(commands.Cog):
     def __init__(self, client):
         self.client = client
+
+    async def cog_command_error(self, ctx, error):
+        await ctx.send(
+            embed = discord.Embed(
+                description = error,
+                colour = colors.red
+            )
+        )
+        
+        console_log(f"Error occurred while executing command: '{ctx.command}' in {ctx.guild.name}/{ctx.channel.name}: {type(error)}: {error}")
+        
+        if not isinstance(error, commands.CommandOnCooldown):
+            ctx.command.reset_cooldown(ctx)
+            console_log(f"Command '{ctx.command}' for {ctx.guild.name} has been reset due to an error")
 
     async def levelup(self, ctx):
         embed = discord.Embed(
@@ -72,15 +86,12 @@ class Heist(commands.Cog):
     async def work(self, ctx):
         game = games[ctx.guild.id]
         
-        try:
-            data = game.work(ctx.author.id)
-            amount = data.get('amount')
-            cash = data.get('cash')
-            exp = data.get('exp')
-            levelup = data.get('levelup')
-        except Exception as e:
-            console_log(e)
-            return
+
+        data = game.work(ctx.author.id)
+        amount = data.get('amount')
+        cash = data.get('cash')
+        exp = data.get('exp')
+        levelup = data.get('levelup')
 
         if levelup:
             await self.levelup(ctx)
@@ -107,22 +118,12 @@ class Heist(commands.Cog):
             )
             return
 
-        try:
-            data = game.rob(ctx.author.id, member.id)
-            failed = data.get('failed')
-            amount = data.get('amount')
-            cash = data.get('cash')
-            exp = data.get('exp')
-            levelup = data.get('levelup')
-        except Exception as e:
-            await ctx.send(
-                embed = discord.Embed(
-                    description = "You cannot rob this user.",
-                    colour = colors.red
-                )
-            )
-            console_log(e)
-            return
+        data = game.rob(ctx.author.id, member.id)
+        failed = data.get('failed')
+        amount = data.get('amount')
+        cash = data.get('cash')
+        exp = data.get('exp')
+        levelup = data.get('levelup')
 
         if levelup:
             await self.levelup(ctx)
@@ -130,7 +131,7 @@ class Heist(commands.Cog):
         if failed:
             await ctx.send(
                 embed = discord.Embed(
-                    description = f'Your plan to rob **{name}** has failed and you have been fined **${amount}** for it. Your new balance is **${cash}**.',
+                    description = f'Your plan to rob **{name}** has failed and you have been fined **${amount}**. Your new balance is **${cash}**.',
                     colour = colors.red
                 )
             )
@@ -141,6 +142,28 @@ class Heist(commands.Cog):
                     colour = colors.gold
                 )
             )
+
+    @commands.command()
+    @commands.cooldown(1, 30, commands.BucketType.member)
+    async def donate(self, ctx, member: discord.Member, amount):
+        game = games[ctx.guild.id]
+        name =  member.nick if member.nick else member.name
+
+        amount = int(amount)
+
+        data = game.donate(ctx.author.id, member.id, amount)
+        exp = data.get('exp')
+        levelup = data.get('levelup')
+
+        if levelup:
+            self.levelup(ctx)
+
+        await ctx.send(
+            embed = discord.Embed(
+                description = f"{ctx.author.mention} just donated **${amount}** to **{name}** and earned **{exp}** exp.",
+                colour = colors.gold
+            )
+        )
 
 def setup(client):
     client.add_cog(Heist(client))
