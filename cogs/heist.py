@@ -3,7 +3,7 @@ import colors
 import asyncio
 
 from discord.ext import commands
-from game import Game, User, GameExceptions
+from game import Game, User, Perk, GameExceptions
 from logger import console_log
 
 games = {}
@@ -96,12 +96,16 @@ class Heist(commands.Cog):
         if levelup:
             await self.levelup(ctx)
 
-        await ctx.send(
-            embed = discord.Embed(
-                description = f'You have earned **${amount}** and **{exp}** exp. Your new balance is **${cash}**.',
-                colour = colors.gold
-            )
+        
+        embed = discord.Embed(
+            description = f'You have earned **${amount}** and **{exp}** exp. Your new balance is **${cash}**.',
+            colour = colors.gold
         )
+
+        if data.get("perk"):
+            embed.set_footer(text="Perk consumed and reward icnreased.")
+
+        await ctx.send(embed=embed)
     
     @commands.command()
     @commands.cooldown(1, 90, commands.BucketType.member)
@@ -239,6 +243,51 @@ class Heist(commands.Cog):
         except asyncio.TimeoutError:
             await verify.delete()
             await ctx.send('Cancelling due to timeout.')
+
+    @commands.command(aliases=["perk"])
+    async def myperks(self, ctx):
+        game = games.get(ctx.guild.id)
+        user = User.get(game.conn, game.c, ctx.author.id)
+        user.perks = Perk.get(game.conn, game.c, ctx.author.id)
+
+        embed = discord.Embed(
+				title="Perk Information",
+				description=f"User: {ctx.author.mention}",
+				colour=colors.blue,
+				timestamp=ctx.message.created_at
+			)
+        embed.set_thumbnail(url=ctx.author.avatar_url)
+        embed.add_field(
+            name=f"Tactical Robbery `x{user.perks.rob}`",
+            value="Get caught less in **`$rob`**",
+            inline=False
+        )
+        embed.add_field(
+            name=f"Energy Drink `x{user.perks.work}`",
+            value="Earn more cash in **`$work`**",
+            inline=False
+        )
+
+        await ctx.send(embed=embed)
+    
+    @commands.command()
+    async def buyperk(self, ctx, item, amount):
+        game = games.get(ctx.guild.id)
+        name = ctx.author.nick if ctx.author.nick else ctx.author.name
+
+        if item.lower() == 'rob':
+            item_name = 'Tactical Robbery'
+            data = game.buy_rob(ctx.author.id, amount)
+        if item.lower() == 'work':
+            item_name = 'Energy Drink'
+            data = game.buy_work(ctx.author.id, amount)
+
+        await ctx.send(
+            embed = discord.Embed(
+                description = f"**{name}** has purchased **{data.get('amount')}x** **{item_name}** for **${data.get('cost')}**.",
+                colour = colors.gold
+            )
+        )
 
 def setup(client):
     client.add_cog(Heist(client))

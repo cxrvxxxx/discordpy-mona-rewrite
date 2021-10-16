@@ -12,6 +12,10 @@ from discord.ext import commands
 # game.donate(author_id, target_id, amount, multiplier)
 # game.charity(uid, amount, multiplier)
 # game.gamble(uid, amount, multiplier)
+# game.buy_work(uid, amount)
+# game.buy_rob(uid, amount)
+# game.use_work_charge(uid, amount)
+# game.use_rob_charge(uid, amount)
 
 # define exceptions
 class GameExceptions:
@@ -25,6 +29,10 @@ class GameExceptions:
 
     class InvalidRobTarget(commands.CommandError):
         """Cannot rob user with zero cash"""
+        pass
+
+    class NotEnoughCash(commands.CommandError):
+        """Insufficient cash"""
         pass
 
 class Game:
@@ -42,6 +50,7 @@ class Game:
         # init tables
         with self.conn:
             self.c.execute("CREATE TABLE IF NOT EXISTS users (uid INTEGER, level INTEGER, exp INTEGER, cash INTEGER)")
+            self.c.execute("CREATE TABLE IF NOT EXISTS perks (uid INTEGER, rob INTEGER, work INTEGER)")
 
     def register(self, uid):
         user = User(uid)
@@ -50,6 +59,7 @@ class Game:
 
     def work(self, uid, multiplier=1):
         user = User.get(self.conn, self.c, uid)
+        user.perks = Perk.get(self.conn, self.c, uid)
 
         # ensure argument type
         multiplier = float(multiplier)
@@ -58,12 +68,17 @@ class Game:
         if not user:
             raise GameExceptions.UserNotFound("You must be registered to do this.")
 
+        has_perk = self.use_work_charge(uid)
+
+        if has_perk:
+            multiplier = multiplier + 1
+
         amount = round(random.randint(user.level, user.level * 3) * multiplier)
         
         cash = user.add_cash(self.conn, self.c, amount)
         exp, levelup = user.add_exp(self.conn, self.c, multiplier)
 
-        return {"amount": amount, "cash": cash, "exp": exp, "levelup": levelup}
+        return {"amount": amount, "cash": cash, "exp": exp, "levelup": levelup, "perk": has_perk}
 
     def rob(self, author_id, target_id, multiplier=0.9):
         user = User.get(self.conn, self.c, author_id)
@@ -167,6 +182,84 @@ class Game:
 
         return {"amount": value, "cash": cash, "win": win}
 
+    def buy_work(self, uid, amount):
+        # work price:
+        price = 10
+
+        user = User.get(self.conn, self.c, uid)
+
+        # esnure data type
+        amount = int(amount)
+
+        # validation
+        if not user:
+            raise GameExceptions.UserNotFound("You must be registered to do this.")
+
+        user.perks = Perk.get(self.conn, self.c, uid)
+
+        cost = amount * price
+        if cost > user.cash:
+            raise GameExceptions.NotEnoughCash("You cannot afford this.")
+        
+        user.take_cash(self.conn, self.c, cost)
+        user.perks.add_work_charge(self.conn, self.c, amount)
+        return {"amount": amount, "cost": cost}
+
+    def buy_rob(self, uid, amount):
+        # rob price:
+        price = 50
+
+        user = User.get(self.conn, self.c, uid)
+
+        # esnure data type
+        amount = int(amount)
+
+        # validation
+        if not user:
+            raise GameExceptions.UserNotFound("You must be registered to do this.")
+
+        user.perks = Perk.get(self.conn, self.c, uid)
+
+        cost = amount * price
+        if cost > user.cash:
+            raise GameExceptions.NotEnoughCash("You cannot afford this.")
+        
+        user.take_cash(self.conn, self.c, cost)
+        user.perks.add_rob_charge(self.conn, self.c, amount)
+        return {"amount": amount, "cost": cost}
+
+    def use_work_charge(self, uid, amount=1):
+        user = User.get(self.conn, self.c, uid)
+
+        amount = int(amount)
+
+        if not user:
+            raise GameExceptions.UserNotFound("You must be registered to do this.")
+
+        user.perk = Perk.get(self.conn, self.c, uid)
+
+        if user.perk.work < amount:
+            return False
+        
+        user.perk.take_work_charge(self.conn, self.c, amount)
+        return True
+
+    def use_rob_charge(self, uid, amount=1):
+        user = User.get(self.conn, self.c, uid)
+
+        amount = int(amount)
+
+        if not user:
+            raise GameExceptions.UserNotFound("You must be registered to do this.")
+
+        user.perk = Perk.get(self.conn, self.c, uid)
+
+        if user.perk.rob < amount:
+            return False
+
+        user.perk.take_rob_charge(self.conn, self.c, amount)
+        return True
+
 class User:
     def __init__(self, uid, level=1, exp=0, cash=0):
         # user.property
@@ -232,7 +325,8 @@ class User:
 
     def add_exp(self, conn, c, multiplier, override_value=None):
         base = math.log(override_value, 1.1) if override_value else self.level
-        amount = round(1 + base * 2 * multiplier)
+        upper_limit = round(1 + base * 2 * multiplier)
+        amount = random.randint(self.level, upper_limit)
         self.exp = self.exp + amount
 
         if self.exp > self.exp_to_levelup:
@@ -257,3 +351,67 @@ class User:
         self.level = amount
         self.update(conn, c)
         return self.level
+
+class Perk:
+    def __init__(self, uid, work=0, rob=0):
+        self.uid = uid
+        self.work = work
+        self.rob = rob
+
+    @property
+    def data(self):
+        return self.__dict__
+
+    @classmethod
+    def instance(cls, data):
+        return cls(*data)
+
+    def new(self, conn, c):
+        with conn:
+            c.execute("SELECT * FROM perks WHERE uid=:uid", {"uid": self.uid})
+            data = c.fetchone()
+            if not data:
+                c.execute("INSERT INTO perks VALUES (:uid, :work, :rob)", {
+                    "uid": self.uid,
+                    "work": self.work,
+                    "rob": self.rob
+                })
+
+    @classmethod
+    def get(cls, conn, c, uid):
+        data = None
+        while not data:
+            with conn:
+                c.execute("SELECT * FROM perks WHERE uid=:uid", {"uid": uid})
+                data = c.fetchone()
+                if data:
+                    return cls.instance(data)
+                else:
+                    perk = Perk(uid)
+                    perk.new(conn, c)
+
+    def update(self, conn, c):
+        if self.get(conn, c, self.uid):
+            with conn:
+                c.execute("UPDATE perks SET work=:work, rob=:rob WHERE uid=:uid", {
+                    "uid": self.uid,
+                    "work": self.work,
+                    "rob": self.rob
+                })
+        return self.get(conn, c, self.uid)
+
+    def add_rob_charge(self, conn, c, amount):
+        self.rob = self.rob + amount
+        return self.update(conn, c)
+
+    def take_rob_charge(self, conn, c, amount):
+        self.rob = self.rob - amount
+        return self.update(conn, c)
+
+    def add_work_charge(self, conn, c, amount):
+        self.work = self.work + amount
+        return self.update(conn, c)
+
+    def take_work_charge(self, conn, c, amount):
+        self.work = self.work - amount
+        return self.update(conn, c)
