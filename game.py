@@ -17,6 +17,9 @@ from logger import console_log
 # game.buy_rob(uid, amount)
 # game.use_work_charge(uid, amount)
 # game.use_rob_charge(uid, amount)
+# game.withdraw(uid, amount)
+# game.deposit(uid, amount)
+# game.transfer(author_id, target_id, amount)
 
 # define exceptions
 class GameExceptions:
@@ -36,6 +39,10 @@ class GameExceptions:
         """Insufficient cash"""
         pass
 
+    class InsufficientBankBalance(commands.CommandError):
+        """Insufficient bank balance"""
+        pass
+
 class Game:
     def __init__(self, db):
         # init dir
@@ -52,6 +59,7 @@ class Game:
         with self.conn:
             self.c.execute("CREATE TABLE IF NOT EXISTS users (uid INTEGER, level INTEGER, exp INTEGER, cash INTEGER)")
             self.c.execute("CREATE TABLE IF NOT EXISTS perks (uid INTEGER, rob INTEGER, work INTEGER)")
+            self.c.execute("CREATE TABLE IF NOT EXISTS banks (uid INTEGER, balance INTEGER)")
 
     def register(self, uid):
         user = User(uid)
@@ -271,6 +279,57 @@ class Game:
         user.perk.take_rob_charge(self.conn, self.c, amount)
         return True
 
+    def deposit(self, uid, amount):
+        user = User.get(self.conn, self.c, uid)
+        user.bank = Bank.get(self.conn, self.c, uid)
+
+        amount = int(amount)
+
+        if not user:
+            raise GameExceptions.UserNotFound("You must be registered to do this.")
+        if amount > user.cash:
+            raise GameExceptions.NotEnoughCash("You dont have enough cash.")
+
+        user.take_cash(self.conn, self.c, amount)
+        user.bank.deposit(self.conn, self.c, amount)
+
+        return amount
+
+    def withdraw(self, uid, amount):
+        user = User.get(self.conn, self.c, uid)
+        user.bank = Bank.get(self.conn, self.c, uid)
+
+        amount = int(amount)
+
+        if not user:
+            raise GameExceptions.UserNotFound("You must be registered to do this.")
+        if amount > user.bank.balance:
+            raise GameExceptions.InsufficientBankBalance("You do not have enough cash in the bank.")
+
+        user.add_cash(self.conn, self.c, amount)
+        user.bank.withdraw(self.conn, self.c, amount)
+
+        return amount
+
+    def transfer(self, author_id, target_id, amount):
+        user = User.get(self.conn, self.c, author_id)
+        user.bank = Bank.get(self.conn, self.c, author_id)
+
+        target = User.get(self.conn, self.c, target_id)
+        target.bank = Bank.get(self.conn, self.c, target_id)
+
+        amount = int(amount)
+
+        if not user or not target:
+            raise GameExceptions.UserNotFound("You must be registered to do this.")
+        if amount > user.bank.balance:
+            raise GameExceptions.InsufficientBankBalance("You do not have enough cash in the bank.")
+
+        user.bank.withdraw(self.conn, self.c, amount)
+        target.bank.deposit(self.conn, self.c, amount)
+
+        return amount
+
 class User:
     def __init__(self, uid, level=1, exp=0, cash=0):
         # user.property
@@ -426,4 +485,57 @@ class Perk:
 
     def take_work_charge(self, conn, c, amount):
         self.work = self.work - amount
+        return self.update(conn, c)
+
+class Bank:
+    def __init__(self, uid, balance=0):
+        self.uid = uid
+        self.balance = balance
+
+    @property
+    def data(self):
+        return self.__dict__
+
+    @classmethod
+    def instance(cls, data):
+        return cls(*data)
+
+    def new(self, conn, c):
+        with conn:
+            c.execute("SELECT * FROM banks WHERE uid=:uid", {"uid": self.uid})
+            data = c.fetchone()
+            if not data:
+                c.execute("INSERT INTO banks VALUES (:uid, :balance)", {
+                    "uid": self.uid,
+                    "balance": self.balance
+                })
+
+    @classmethod
+    def get(cls, conn, c, uid):
+        data = None
+        while not data:
+            with conn:
+                c.execute("SELECT * FROM banks WHERE uid=:uid", {"uid": uid})
+                data = c.fetchone()
+                if data:
+                    return cls.instance(data)
+                else:
+                    bank = Bank(uid)
+                    bank.new(conn, c)
+
+    def update(self, conn, c):
+        if self.get(conn, c, self.uid):
+            with conn:
+                c.execute("UPDATE banks SET balance=:balance WHERE uid=:uid", {
+                    "uid": self.uid,
+                    "balance": self.balance
+                })
+        return self.get(conn, c, self.uid)
+
+    def withdraw(self, conn, c, amount):
+        self.balance = self.balance - amount
+        return self.update(conn, c)
+
+    def deposit(self, conn, c, amount):
+        self.balance = self.balance + amount
         return self.update(conn, c)

@@ -3,7 +3,7 @@ import colors
 import asyncio
 
 from discord.ext import commands
-from game import Game, User, Perk, GameExceptions
+from game import Game, User, Perk, GameExceptions, Bank
 from logger import console_log
 
 games = {}
@@ -320,6 +320,57 @@ class Heist(commands.Cog):
 
         await ctx.send(embed=embed)
 
+    @commands.command()
+    async def bank(self, ctx):
+        game = games.get(ctx.guild.id)
+        bank = Bank.get(game.conn, game.c, ctx.author.id)
+
+        await ctx.send(
+            embed = discord.Embed(
+                description = f"Current bank balance: **${bank.balance}**.",
+                colour = colors.gold
+            )
+        )
+
+    @commands.command()
+    async def deposit(self, ctx, amount):
+        game = games.get(ctx.guild.id)
+        amount = game.deposit(ctx.author.id, amount)
+
+        await ctx.send(
+            embed = discord.Embed(
+                description = f"You have deposited **${amount}**.",
+                colour = colors.gold
+            )
+        )
+    
+    @commands.command()
+    async def withdraw(self, ctx, amount):
+        game = games.get(ctx.guild.id)
+        amount = game.withdraw(ctx.author.id, amount)
+
+        await ctx.send(
+            embed = discord.Embed(
+                description = f"You have withdrawn **${amount}**.",
+                colour = colors.gold
+            )
+        )
+
+    @commands.command()
+    async def transfer(self, ctx, member: discord.Member, amount):
+        game = games.get(ctx.guild.id)
+
+        sender_name = ctx.author.nick if ctx.author.nick else ctx.author.name
+        receiver_name = member.nick if member.nick else member.name
+
+        amount = game.transfer(ctx.author.id, member.id, amount)
+
+        await ctx.send(
+            embed = discord.Embed(
+                description = f"{sender_name} has transferred **${amount}** to {receiver_name}.",
+                colour = colors.gold
+            )
+        )
         
 def setup(client):
     client.add_cog(Heist(client))
