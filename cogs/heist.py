@@ -133,19 +133,23 @@ class Heist(commands.Cog):
             await self.levelup(ctx)
 
         if failed:
-            await ctx.send(
-                embed = discord.Embed(
-                    description = f'Your plan to rob **{name}** has failed and you have been fined **${amount}**. Your new balance is **${cash}**.',
-                    colour = colors.red
-                )
+            embed = discord.Embed(
+                description = f'Your plan to rob **{name}** has failed and you have been fined **${amount}**. Your new balance is **${cash}**.',
+                colour = colors.red
             )
         else:
-            await ctx.send(
-                embed = discord.Embed(
-                    description = f'Your just robbed **{name}** for **${amount}** and earned **{exp}** exp. Your new balance is **${cash}**.',
-                    colour = colors.gold
-                )
+            
+            embed = discord.Embed(
+                description = f'Your just robbed **{name}** for **${amount}** and earned **{exp}** exp. Your new balance is **${cash}**.',
+                colour = colors.gold
             )
+
+        if data.get('perk'):
+            embed.set_footer(
+                text = "A perk was used and the chances of failing was reduced for this attempt."
+            )
+
+        await ctx.send(embed=embed)
 
     @commands.command()
     @commands.cooldown(1, 30, commands.BucketType.member)
@@ -270,7 +274,7 @@ class Heist(commands.Cog):
 
         await ctx.send(embed=embed)
     
-    @commands.command()
+    @commands.command(aliases=["buy"])
     async def buyperk(self, ctx, item, amount):
         game = games.get(ctx.guild.id)
         name = ctx.author.nick if ctx.author.nick else ctx.author.name
@@ -289,5 +293,33 @@ class Heist(commands.Cog):
             )
         )
 
+    @commands.command()
+    async def shop(self, ctx):
+        game = games.get(ctx.guild.id)
+        user = User.get(game.conn, game.c, ctx.author.id)
+
+        if not user:
+            raise GameExceptions.UserNotFound("You must be registered to do this.")
+
+        shop_items = {
+            'work': {'price': '10', 'code': 'work', 'name': 'Energy Drink', 'desc': 'Increases cash and exp gained from `$work`.'},
+            'rob': {'price': '50', 'code': 'rob', 'name': 'Tactical Robbery', 'desc': 'Reduces the chance of failing in `$rob`.'}
+        }
+
+        embed = discord.Embed(
+            title = 'Perk Shop',
+            description = "".join(
+                [f"Code: `{item.get('code')}` | **{item.get('name')}** `${item.get('price')}`\n{item.get('desc')}\n\n" for key, item in shop_items.items()]
+            ),
+            colour = colors.blue
+        )
+
+        embed.set_footer(
+            text="Use [$buy <code> <qty>] to buy perks."
+        )
+
+        await ctx.send(embed=embed)
+
+        
 def setup(client):
     client.add_cog(Heist(client))

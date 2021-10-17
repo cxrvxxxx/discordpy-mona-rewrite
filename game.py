@@ -4,6 +4,7 @@ import random
 import os
 
 from discord.ext import commands
+from logger import console_log
 
 # ==== methods =====
 # game.register(uid)
@@ -95,22 +96,32 @@ class Game:
         if target.cash <= 0:
             raise GameExceptions.InvalidRobTarget("This person has nothing you can take")
 
-        amount = round(random.randint(1, round(target.cash * 0.20)) * multiplier)
-        x = random.randint(0, 9)
+        has_perk = self.use_rob_charge(author_id)
 
-        if x > 5:
-            cash = user.take_cash(self.conn, self.c, amount)
+        amount = round(random.randint(1, round(target.cash * 0.20)) * multiplier)
+        x = random.randint(0, 100)
+
+        if has_perk:
+            x = x - 15
+
+        if x > 49:
+            user.take_cash(self.conn, self.c, amount)
             failed = True
             exp = 0
             levelup = False
         else:
-            cash = user.add_cash(self.conn, self.c, amount)
+            user.add_cash(self.conn, self.c, amount)
             exp, levelup = user.add_exp(self.conn, self.c, multiplier)
     
-            cash = target.take_cash(self.conn, self.c, amount)
+            target.take_cash(self.conn, self.c, amount)
             failed = False
 
-        return {"failed": failed, "amount": amount, "cash": cash, "exp": exp, "levelup": levelup}
+        user = user.get(self.conn, self.c, author_id)
+        cash = user.cash
+
+        console_log(f"Command 'rob' called. Return value: {x}")
+
+        return {"failed": failed, "amount": amount, "cash": cash, "exp": exp, "levelup": levelup, "perk": has_perk}
 
     def donate(self, author_id, target_id, amount, multiplier=1):
         user = User.get(self.conn, self.c, author_id)
@@ -125,7 +136,7 @@ class Game:
             raise GameExceptions.UserNotFound("You must be registered to do this.")
         if not target:
             raise GameExceptions.UserNotFound("User is not registered.")
-        if amount > user.cash or amount < 0:
+        if amount > user.cash or amount <= 0:
             raise GameExceptions.InvalidAmount("Amount specified exceeds available cash or is zero.")
 
         cash = user.take_cash(self.conn, self.c, amount)
@@ -326,7 +337,8 @@ class User:
     def add_exp(self, conn, c, multiplier, override_value=None):
         base = math.log(override_value, 1.1) if override_value else self.level
         upper_limit = round(1 + base * 2 * multiplier)
-        amount = random.randint(self.level, upper_limit)
+        lower_limit = 0 if override_value else self.level
+        amount = random.randint(lower_limit, upper_limit)
         self.exp = self.exp + amount
 
         if self.exp > self.exp_to_levelup:
