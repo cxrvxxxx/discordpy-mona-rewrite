@@ -62,9 +62,10 @@ class AntiSpam(commands.Cog):
             for msg in messages[author.id]:
                 try:
                     await msg.message.delete()
+                    console_log(f"ANTISPAM: Deleting spam message in {msg.message.guild.name}/{msg.message.channel.name}.")
                 except:
                     console_log("ANTISPAM: An error occurred while deleting one or more messages.")
-                console_log(f"Deleting spam message in {msg.message.guild.name}/{msg.message.channel.name}.")
+                console_log(f"ANTISPAM: Deleting spam message in {msg.message.guild.name}/{msg.message.channel.name}.")
 
         # removed expired messages from pool
         for msg in messages[author.id]:

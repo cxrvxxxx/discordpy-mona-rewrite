@@ -8,3 +8,14 @@ def is_whitelisted(ctx):
         return True
     else:
         return False
+
+def whitelist_level(ctx, level=0):
+    config_path = f'./config/{ctx.guild.id}.ini'
+    config = Config(config_path)
+
+    access = config.getint('cogs.whitelist', ctx.author.id)
+
+    if access >= level:
+        return True
+    else:
+        return False
