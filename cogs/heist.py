@@ -3,7 +3,7 @@ import colors
 import asyncio
 
 from discord.ext import commands
-from game import Game, User, GameExceptions
+from game import Game, User, Perk, GameExceptions, Bank
 from logger import console_log
 
 games = {}
@@ -96,12 +96,16 @@ class Heist(commands.Cog):
         if levelup:
             await self.levelup(ctx)
 
-        await ctx.send(
-            embed = discord.Embed(
-                description = f'You have earned **${amount}** and **{exp}** exp. Your new balance is **${cash}**.',
-                colour = colors.gold
-            )
+        
+        embed = discord.Embed(
+            description = f'You have earned **${amount}** and **{exp}** exp. Your new balance is **${cash}**.',
+            colour = colors.gold
         )
+
+        if data.get("perk"):
+            embed.set_footer(text="Perk consumed and reward icnreased.")
+
+        await ctx.send(embed=embed)
     
     @commands.command()
     @commands.cooldown(1, 90, commands.BucketType.member)
@@ -129,19 +133,22 @@ class Heist(commands.Cog):
             await self.levelup(ctx)
 
         if failed:
-            await ctx.send(
-                embed = discord.Embed(
-                    description = f'Your plan to rob **{name}** has failed and you have been fined **${amount}**. Your new balance is **${cash}**.',
-                    colour = colors.red
-                )
+            embed = discord.Embed(
+                description = f'Your plan to rob **{name}** has failed and you have been fined **${amount}**. Your new balance is **${cash}**.',
+                colour = colors.red
             )
         else:
-            await ctx.send(
-                embed = discord.Embed(
-                    description = f'Your just robbed **{name}** for **${amount}** and earned **{exp}** exp. Your new balance is **${cash}**.',
-                    colour = colors.gold
-                )
+            embed = discord.Embed(
+                description = f'You just robbed **{name}** for **${amount}** and earned **{exp}** exp. Your new balance is **${cash}**.',
+                colour = colors.gold
             )
+
+        if data.get('perk'):
+            embed.set_footer(
+                text = "A perk was used and the chances of failing was reduced for this attempt."
+            )
+
+        await ctx.send(embed=embed)
 
     @commands.command()
     @commands.cooldown(1, 30, commands.BucketType.member)
@@ -240,5 +247,129 @@ class Heist(commands.Cog):
             await verify.delete()
             await ctx.send('Cancelling due to timeout.')
 
+    @commands.command(aliases=["perk"])
+    async def myperks(self, ctx):
+        game = games.get(ctx.guild.id)
+        user = User.get(game.conn, game.c, ctx.author.id)
+        user.perks = Perk.get(game.conn, game.c, ctx.author.id)
+
+        embed = discord.Embed(
+				title="Perk Information",
+				description=f"User: {ctx.author.mention}",
+				colour=colors.blue,
+				timestamp=ctx.message.created_at
+			)
+        embed.set_thumbnail(url=ctx.author.avatar_url)
+        embed.add_field(
+            name=f"Tactical Robbery `x{user.perks.rob}`",
+            value="Get caught less in **`$rob`**",
+            inline=False
+        )
+        embed.add_field(
+            name=f"Energy Drink `x{user.perks.work}`",
+            value="Earn more cash in **`$work`**",
+            inline=False
+        )
+
+        await ctx.send(embed=embed)
+    
+    @commands.command(aliases=["buy"])
+    async def buyperk(self, ctx, item, amount):
+        game = games.get(ctx.guild.id)
+        name = ctx.author.nick if ctx.author.nick else ctx.author.name
+
+        if item.lower() == 'rob':
+            item_name = 'Tactical Robbery'
+            data = game.buy_rob(ctx.author.id, amount)
+        if item.lower() == 'work':
+            item_name = 'Energy Drink'
+            data = game.buy_work(ctx.author.id, amount)
+
+        await ctx.send(
+            embed = discord.Embed(
+                description = f"**{name}** has purchased **{data.get('amount')}x** **{item_name}** for **${data.get('cost')}**.",
+                colour = colors.gold
+            )
+        )
+
+    @commands.command()
+    async def shop(self, ctx):
+        game = games.get(ctx.guild.id)
+        user = User.get(game.conn, game.c, ctx.author.id)
+
+        if not user:
+            raise GameExceptions.UserNotFound("You must be registered to do this.")
+
+        shop_items = {
+            'work': {'price': '10', 'code': 'work', 'name': 'Energy Drink', 'desc': 'Increases cash and exp gained from `$work`.'},
+            'rob': {'price': '50', 'code': 'rob', 'name': 'Tactical Robbery', 'desc': 'Reduces the chance of failing in `$rob`.'}
+        }
+
+        embed = discord.Embed(
+            title = 'Perk Shop',
+            description = "".join(
+                [f"Code: `{item.get('code')}` | **{item.get('name')}** `${item.get('price')}`\n{item.get('desc')}\n\n" for key, item in shop_items.items()]
+            ),
+            colour = colors.blue
+        )
+
+        embed.set_footer(
+            text="Use [$buy <code> <qty>] to buy perks."
+        )
+
+        await ctx.send(embed=embed)
+
+    @commands.command()
+    async def bank(self, ctx):
+        game = games.get(ctx.guild.id)
+        bank = Bank.get(game.conn, game.c, ctx.author.id)
+
+        await ctx.send(
+            embed = discord.Embed(
+                description = f"Current bank balance: **${bank.balance}**.",
+                colour = colors.gold
+            )
+        )
+
+    @commands.command()
+    async def deposit(self, ctx, amount):
+        game = games.get(ctx.guild.id)
+        amount = game.deposit(ctx.author.id, amount)
+
+        await ctx.send(
+            embed = discord.Embed(
+                description = f"You have deposited **${amount}**.",
+                colour = colors.gold
+            )
+        )
+    
+    @commands.command()
+    async def withdraw(self, ctx, amount):
+        game = games.get(ctx.guild.id)
+        amount = game.withdraw(ctx.author.id, amount)
+
+        await ctx.send(
+            embed = discord.Embed(
+                description = f"You have withdrawn **${amount}**.",
+                colour = colors.gold
+            )
+        )
+
+    @commands.command()
+    async def transfer(self, ctx, member: discord.Member, amount):
+        game = games.get(ctx.guild.id)
+
+        sender_name = ctx.author.nick if ctx.author.nick else ctx.author.name
+        receiver_name = member.nick if member.nick else member.name
+
+        amount = game.transfer(ctx.author.id, member.id, amount)
+
+        await ctx.send(
+            embed = discord.Embed(
+                description = f"{sender_name} has transferred **${amount}** to {receiver_name}.",
+                colour = colors.gold
+            )
+        )
+        
 def setup(client):
     client.add_cog(Heist(client))
