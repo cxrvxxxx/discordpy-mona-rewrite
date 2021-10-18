@@ -138,7 +138,6 @@ class Heist(commands.Cog):
                 colour = colors.red
             )
         else:
-            
             embed = discord.Embed(
                 description = f'You just robbed **{name}** for **${amount}** and earned **{exp}** exp. Your new balance is **${cash}**.',
                 colour = colors.gold
