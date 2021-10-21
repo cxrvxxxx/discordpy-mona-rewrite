@@ -1,6 +1,8 @@
 import discord
 import DiscordUtils
 import asyncio
+
+from discord.errors import ClientException
 import colors
 
 from discord.ext import commands
@@ -55,6 +57,20 @@ class Voice(commands.Cog):
             )
         )
 
+        if isinstance(error, discord.ClientException) and (ctx.command == self.client.get_command('play')):
+            console_log(f"MusicPlayer: An error occurred while controlling the player in {ctx.guild.name}")
+
+            await ctx.invoke(self.client.get_command('resetplayer'), from_error=True)
+            await asyncio.sleep(1)
+            await ctx.invoke(self.client.get_command('join'), silent=True)
+
+            embed = discord.Embed(
+                colour=colors.blue,
+                description="The player has been **reset**. Try playing the song again."
+            )
+
+            await ctx.send(embed=embed, delete_after=10)
+
     @commands.Cog.listener()
     async def on_ready(self):
         # init config data for this cog
@@ -68,13 +84,15 @@ class Voice(commands.Cog):
         config = self.config[member.guild.id]
         channel = channels.get(member.guild.id)
         auto_disconnect = config.getboolean(__name__, 'voice_auto_disconnect')
-        user_count = len(member.guild.voice_client.members)
+        guild = self.client.get_guild(member.guild.id)
 
-        # do nothing if the update does not come from the bot
-        if member != self.client.user:
+        if not guild.voice_client:
             return
 
+        user_count = len(guild.voice_client.channel.members)
+
         if (user_count < 2 and auto_disconnect) and channel:
+            console_log("MusicPlayer: Auto-disconnect timer started.")
             await asyncio.sleep(180)
 
             if user_count < 2:
@@ -125,52 +143,38 @@ class Voice(commands.Cog):
         await ctx.author.voice.channel.connect()
 
         # does not send response if silent is true
-        if silent:
+        if not silent:
             await ctx.channel.send(embed=embed)
 
     @commands.command(aliases=['p'])
     async def play(self, ctx, *, url = None):
-        try:
-            if not url:
-                raise VoiceExceptions.InvalidTitle("Please provide a **song title** or **link**.")
+        if not url:
+            raise VoiceExceptions.InvalidTitle("Please provide a **song title** or **link**.")
 
-            if url.startswith('https://open.spotify.com/'):
-                raise VoiceExceptions.InvalidTitle("**Spotify** playlists are not currently supported.")
+        if url.startswith('https://open.spotify.com/'):
+            raise VoiceExceptions.InvalidTitle("**Spotify** playlists are not currently supported.")
 
-            if not ctx.voice_client:
-                await ctx.invoke(self.client.get_command('join'))
+        if not ctx.voice_client:
+            await ctx.invoke(self.client.get_command('join'))
 
-            if ctx.channel != channels[ctx.guild.id]:
-                raise VoiceExceptions.IncorrectControlChannel(f"The player can only be controlled from **[{channels[ctx.guild.id]}]**.")
-            
-            player = music.get_player(guild_id=ctx.guild.id)
-            if not player:
-                player = music.create_player(ctx, ffmpeg_error_betterfix=True)
-            if not player.now_playing():
-                await player.queue(url, search=True)
-                song = await player.play()
-                embed = discord.Embed(colour=colors.blue, title=f"🎶 {song.name}", description=f"Now playing on {ctx.author.voice.channel.name} | by {ctx.author.mention}.")
-                embed.set_thumbnail(url=song.thumbnail)
-                embed.set_footer(text="If you like this song, use '$fave' to add this to your favorites!")
-            else:
-                song = await player.queue(url, search=True)
-                embed = discord.Embed(colour=colors.blue, title=f"🎶 {song.name}", description=f"Successfully added to queue by {ctx.author.mention}.")
+        if ctx.channel != channels[ctx.guild.id]:
+            raise VoiceExceptions.IncorrectControlChannel(f"The player can only be controlled from **[{channels[ctx.guild.id]}]**.")
+        
+        player = music.get_player(guild_id=ctx.guild.id)
+        if not player:
+            player = music.create_player(ctx, ffmpeg_error_betterfix=True)
+        if not player.now_playing():
+            await player.queue(url, search=True)
+            song = await player.play()
+            embed = discord.Embed(colour=colors.blue, title=f"🎶 {song.name}", description=f"Now playing on {ctx.author.voice.channel.name} | by {ctx.author.mention}.")
+            embed.set_thumbnail(url=song.thumbnail)
+            embed.set_footer(text="If you like this song, use '$fave' to add this to your favorites!")
+        else:
+            song = await player.queue(url, search=True)
+            embed = discord.Embed(colour=colors.blue, title=f"🎶 {song.name}", description=f"Successfully added to queue by {ctx.author.mention}.")
 
-            await ctx.send(embed=embed)
-            await ctx.message.delete()
-        except:
-            console_log(f"MusicPlayer: An error occurred while controlling the player in {ctx.guild.name}")
-
-            await ctx.invoke(self.client.get_command('resetplayer'), from_error=True)
-            await asyncio.sleep(1)
-            await ctx.invoke(self.client.get_command('join'), silent=True)
-
-            embed = discord.Embed(
-                colour=colors.blue,
-                description="The player has been **reset**. Try playing the song again."
-            )
-
-            await ctx.send(embed=embed, delete_after=10)
+        await ctx.send(embed=embed)
+        await ctx.message.delete()
 
     @commands.command(aliases=['q'])
     async def queue(self, ctx):
@@ -320,7 +324,9 @@ class Voice(commands.Cog):
 
         player = music.get_player(guild_id=ctx.guild.id)
         if player:
+            print(music.players)
             await player.stop()
+            print(music.players)
 
         embed = discord.Embed(
             colour=colors.red,
