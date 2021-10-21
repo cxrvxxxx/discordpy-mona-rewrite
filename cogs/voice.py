@@ -1,11 +1,12 @@
 import discord
-import youtube_dl
 import DiscordUtils
 import asyncio
+
+from discord.errors import ClientException
 import colors
 
-from datetime import datetime
 from discord.ext import commands
+from logger import console_log
 
 settings = {
     'voice_auto_disconnect': 'True'
@@ -13,24 +14,62 @@ settings = {
 
 music = DiscordUtils.Music()
 channels = {}
-players = {}
 
-def get_player(key):
-    try:
-        player = players[key]
-        return player
-    except:
-        return None
+class VoiceExceptions:
+    class AlreadyConnectedToVoice(commands.CommandError):
+        """Already connected to voice"""
+        pass
+    
+    class NotConnectedToVoice(commands.CommandError):
+        """Not connected to voice"""
+        pass
 
-def update_player(ctx):
-    player = music.get_player(guild_id=ctx.guild.id)
-    if player:
-        players[ctx.guild.id] = player
+    class InvalidTitle(commands.CommandError):
+        """Title cannot be played"""
+        pass
+
+    class IncorrectControlChannel(commands.CommandError):
+        """Cannot be controlled from this channel"""
+        pass
+
+    class NoActivePlayer(commands.CommandError):
+        """No player found"""
+        pass
+
+    class EmptyQueue(commands.CommandError):
+        """Queue is empty"""
+        pass
+
+    class InvalidVolume(commands.CommandError):
+        """Volume value out of range"""
+        pass
 
 class Voice(commands.Cog):
     def __init__(self, client):
         self.client = client
         self.config = client.config
+
+    async def cog_command_error(self, ctx, error):
+        await ctx.send(
+            embed = discord.Embed(
+                description = error,
+                colour = colors.red
+            )
+        )
+
+        if isinstance(error, discord.ClientException) and (ctx.command == self.client.get_command('play')):
+            console_log(f"MusicPlayer: An error occurred while controlling the player in {ctx.guild.name}")
+
+            await ctx.invoke(self.client.get_command('resetplayer'), from_error=True)
+            await asyncio.sleep(1)
+            await ctx.invoke(self.client.get_command('join'), silent=True)
+
+            embed = discord.Embed(
+                colour=colors.blue,
+                description="The player has been **reset**. Try playing the song again."
+            )
+
+            await ctx.send(embed=embed, delete_after=10)
 
     @commands.Cog.listener()
     async def on_ready(self):
@@ -42,23 +81,27 @@ class Voice(commands.Cog):
 
     @commands.Cog.listener()
     async def on_voice_state_update(self, member, before, after):
-        # do nothing if the update does not come from the bot
-        if member != self.client.user:
-            return
-
         config = self.config[member.guild.id]
         channel = channels.get(member.guild.id)
-        voice_users = member.guild.voice_client.channel.members
+        auto_disconnect = config.getboolean(__name__, 'voice_auto_disconnect')
+        guild = self.client.get_guild(member.guild.id)
 
-        if channel and len(voice_users) < 2 and config.getboolean(__name__, 'voice_auto_disconnect'):
+        if not guild.voice_client:
+            return
+
+        user_count = len(guild.voice_client.channel.members)
+
+        if (user_count < 2 and auto_disconnect) and channel:
+            console_log("MusicPlayer: Auto-disconnect timer started.")
             await asyncio.sleep(180)
 
-            if len(voice_users) < 2:
+            if user_count < 2:
                 embed = discord.Embed(
                     colour=colors.blue,
                     description=f"Disconnecting from **[{channel.name}]** since no one else is in the channel."
                 )
-
+                
+                channels.remove(channel)
                 await channel.send(embed=embed)                    
                 await member.guild.voice_client.disconnect()
 
@@ -84,22 +127,12 @@ class Voice(commands.Cog):
         await ctx.send(embed=embed)
 
     @commands.command()
-    async def join(self, ctx, from_error=False):
+    async def join(self, ctx, silent=False):
         if ctx.voice_client:
-            embed = discord.Embed(
-                colour=colors.red,
-                description=f"Already connected to voice channel **[{ctx.voice_client.channel.name}]**."
-            )
-            await ctx.send(embed=embed)
-            return
+            raise VoiceExceptions.AlreadyConnectedToVoice(f"Already connected to voice channel **[{ctx.voice_client.channel.name}]**.")
 
         if not ctx.author.voice:
-            embed = discord.Embed(
-                colour=colors.red,
-                description="You are not connected to a **voice channel**."
-            )
-            await ctx.send(embed=embed)
-            return
+            raise VoiceExceptions.NotConnectedToVoice("You are not connected to a **voice channel**.")
 
         embed = discord.Embed(
             colour=colors.blue,
@@ -108,288 +141,175 @@ class Voice(commands.Cog):
 
         channels[ctx.guild.id] = ctx.channel
         await ctx.author.voice.channel.connect()
-        if not from_error:
+
+        # does not send response if silent is true
+        if not silent:
             await ctx.channel.send(embed=embed)
 
     @commands.command(aliases=['p'])
     async def play(self, ctx, *, url = None):
-        try:
-            if not url:
-                embed = discord.Embed(
-                    colour=colors.red,
-                    description="Please provide a **song title** or **link**."
-                )
-                await ctx.send(embed=embed)
-                return
+        if not url:
+            raise VoiceExceptions.InvalidTitle("Please provide a **song title** or **link**.")
 
-            if url.startswith('https://open.spotify.com/'):
-                embed=discord.Embed(
-                    colour=colors.red,
-                    description="**Spotify** playlists are not currently supported."
-                )
-                await ctx.send(embed=embed)
-                return
+        if url.startswith('https://open.spotify.com/'):
+            raise VoiceExceptions.InvalidTitle("**Spotify** playlists are not currently supported.")
 
-            if not ctx.voice_client:
-                await ctx.invoke(self.client.get_command('join'))
+        if not ctx.voice_client:
+            await ctx.invoke(self.client.get_command('join'))
 
-            if ctx.channel != channels[ctx.guild.id]:
-                embed = discord.Embed(
-                    colour=colors.red,
-                    description=f"The player can only be controlled from **[{channels[ctx.guild.id]}]**."
-                )
-                await ctx.send(embed=embed)
-                return
-            
-            player = get_player(ctx.guild.id)
-            if not player:
-                player = music.create_player(ctx, ffmpeg_error_betterfix=True)
-            if not player.now_playing():
-                await player.queue(url, search=True)
-                song = await player.play()
-                embed = discord.Embed(colour=colors.blue, title=f"🎶 {song.name}", description=f"Now playing on {ctx.author.voice.channel.name} | by {ctx.author.mention}.")
-                embed.set_thumbnail(url=song.thumbnail)
-                embed.set_footer(text="If you like this song, use '$fave' to add this to your favorites!")
-            else:
-                song = await player.queue(url, search=True)
-                embed = discord.Embed(colour=colors.blue, title=f"🎶 {song.name}", description=f"Successfully added to queue by {ctx.author.mention}.")
+        if ctx.channel != channels[ctx.guild.id]:
+            raise VoiceExceptions.IncorrectControlChannel(f"The player can only be controlled from **[{channels[ctx.guild.id]}]**.")
+        
+        player = music.get_player(guild_id=ctx.guild.id)
+        if not player:
+            player = music.create_player(ctx, ffmpeg_error_betterfix=True)
+        if not player.now_playing():
+            await player.queue(url, search=True)
+            song = await player.play()
+            embed = discord.Embed(colour=colors.blue, title=f"🎶 {song.name}", description=f"Now playing on {ctx.author.voice.channel.name} | by {ctx.author.mention}.")
+            embed.set_thumbnail(url=song.thumbnail)
+            embed.set_footer(text="If you like this song, use '$fave' to add this to your favorites!")
+        else:
+            song = await player.queue(url, search=True)
+            embed = discord.Embed(colour=colors.blue, title=f"🎶 {song.name}", description=f"Successfully added to queue by {ctx.author.mention}.")
 
-            update_player(ctx)
-            await ctx.send(embed=embed)
-            await ctx.message.delete()
-        except:
-            print(f"{datetime.now().timestamp()}: MusicPlayer WARNING! An error occurred while controlling the player in {ctx.guild.name}")
-            await ctx.invoke(self.client.get_command('resetplayer'), from_error=True)
-            await asyncio.sleep(1)
-            await ctx.invoke(self.client.get_command('join'), from_error=True)
-            embed = discord.Embed(
-                colour=colors.blue,
-                description="The player has been **reset**. Try playing the song again."
-            )
-            await ctx.send(embed=embed, delete_after=10)
+        await ctx.send(embed=embed)
+        await ctx.message.delete()
 
     @commands.command(aliases=['q'])
     async def queue(self, ctx):
-        player = get_player(ctx.guild.id)
+        player = music.get_player(guild_id=ctx.guild.id)
         if not player:
-            embed = discord.Embed(
-                colour=colors.red,
-                description="There is no **active player**."
-            )
-            await ctx.send(embed=embed)
-            return
+            raise VoiceExceptions.NoActivePlayer("There is no **active player**.")
 
         if ctx.channel != channels[ctx.guild.id]:
-            embed = discord.Embed(
-                colour=colors.red,
-                description=f"The player can only be controlled from **[{channels[ctx.guild.id]}]**."
-            )
-            await ctx.send(embed=embed)
-            return
+            raise VoiceExceptions.IncorrectControlChannel(f"The player can only be controlled from **[{channels[ctx.guild.id].name}]**.")
 
         queue = player.current_queue()
 
         if not queue:
-            embed = discord.Embed(
-                colour=colors.red,
-                description="The queue is **empty** because there is nothing being currently played."
-            )
-            await ctx.send(embed=embed)
-            return
+            raise VoiceExceptions.EmptyQueue("The queue is **empty** because there is nothing being currently played.")
 
-        embed = discord.Embed(colour=colors.blue, title=f"🎼 {queue[0].name}", description=f"Now playing in {ctx.author.voice.channel.name}")
-        embed.set_thumbnail(url=queue[0].thumbnail)
+        embed = discord.Embed(
+            colour=colors.blue,
+            title=f"🎼 {queue[0].name}",
+            description=f"Now playing in {ctx.author.voice.channel.name}"
+        )
+
+        embed.set_thumbnail(
+            url=queue[0].thumbnail
+        )
+
         songs = ""
         if len(queue) <= 1:
             songs = "There are no songs in the queue."
         else:
-            for i in range(len(queue)):
-                if i == 0:
+            for index, song in enumerate(queue):
+                if index == 0:
                     pass
                 else:
-                    songs = songs + f"\n `{i}` {queue[i].name}"
-        embed.add_field(name="🎶 Up Next...", value=songs, inline=False)
+                    songs = songs + f"\n `{index}` {song.name}"
+
+        embed.add_field(
+            name="🎶 Up Next...",
+            value=songs,
+            inline=False
+        )
+
         embed.set_footer(text="If you like this song, use '$fave' to add this to your favorites!")
         await ctx.send(embed=embed)
-        update_player(ctx)
 
     @commands.command()
     async def resume(self, ctx):
         if ctx.channel != channels[ctx.guild.id]:
-            embed = discord.Embed(
-                colour=colors.red,
-                description=f"The player can only be controlled from **[{channels[ctx.guild.id]}]**."
-            )
-            await ctx.send(embed=embed)
-            return
+            raise VoiceExceptions.IncorrectControlChannel(f"The player can only be controlled from **[{channels[ctx.guild.id]}]**.")
 
-        player = get_player(ctx.guild.id)
+        player = music.get_player(guild_id=ctx.guild.id)
         if not player:
-            embed = discord.Embed(
-                colour=colors.red,
-                description="There is no **active player**."
-            )
-            await ctx.send(embed=embed)
-            return
+            raise VoiceExceptions.NoActivePlayer("There is no **active player**.")
 
         song =  await player.resume()
         await ctx.send(f"Resuming {song.name}")
-        update_player(ctx)
 
     @commands.command()
     async def volume(self, ctx, vol):
         if ctx.channel != channels[ctx.guild.id]:
-            embed = discord.Embed(
-                colour=colors.red,
-                description=f"The player can only be controlled from **[{channels[ctx.guild.id]}]**."
-            )
-            await ctx.send(embed=embed)
-            return
+            raise VoiceExceptions.IncorrectControlChannel(f"The player can only be controlled from **[{channels[ctx.guild.id]}]**.")
 
         vol = float(vol)
         if vol < 0 or vol > 100:
-            embed = discord.Embed(
-                colour=colors.red,
-                description="The volume must be between **0** to **100**."
-            )
-            await ctx.send(embed=embed)
-            return
+            raise VoiceExceptions.InvalidVolume("The volume must be between **0** to **100**.")
 
         if not ctx.author.voice.channel:
-            embed = discord.Embed(
-                colour=colors.red,
-                description="You are not connected to a **voice channel**."
-            )
-            await ctx.send(embed=embed)
-            return
+            raise VoiceExceptions.NotConnectedToVoice("You are not connected to a **voice channel**.")
 
-        player = get_player(ctx.guild.id)
+        player = music.get_player(guild_id=ctx.guild.id)
         if not player:
-            embed = discord.Embed(
-                colour=colors.red,
-                description="There is no **active player**."
-            )
-            await ctx.send(embed=embed)
-            return
+            raise VoiceExceptions.NoActivePlayer("There is no **active player**.")
 
         song, volume = await player.change_volume(vol / 100)
-        await ctx.send(f"Volume set to **{vol}**")
-        update_player(ctx)
+        await ctx.send(f"Volume set to **{volume}** for **{song.name}**.")
 
     @commands.command()
     async def pause(self, ctx):
         if not ctx.author.voice.channel:
-            embed = discord.Embed(
-                colour=colors.red,
-                description="You are not connected to a **voice channel**."
-            )
-            await ctx.send(embed=embed)
-            return
+            raise VoiceExceptions.NotConnectedToVoice("You are not connected to a **voice channel**.")
 
         if ctx.channel != channels[ctx.guild.id]:
-            embed = discord.Embed(
-                colour=colors.red,
-                description=f"The player can only be controlled from **[{channels[ctx.guild.id]}]**."
-            )
-            await ctx.send(embed=embed)
-            return
+            raise VoiceExceptions.IncorrectControlChannel(f"The player can only be controlled from **[{channels[ctx.guild.id]}]**.")
 
-        player = get_player(ctx.guild.id)
+        player = music.get_player(guild_id=ctx.guild.id)
         if not player:
-            embed = discord.Embed(
-                colour=colors.red,
-                description="There is no **active player**."
-            )
-            await ctx.send(embed=embed)
-            return
+            raise VoiceExceptions.NoActivePlayer("There is no **active player**.")
 
         song = await player.pause()
         await ctx.send(f"Paused {song.name}")
-        update_player(ctx)
 
     @commands.command()
     async def skip(self, ctx):
         if not ctx.author.voice:
-            embed = discord.Embed(
-                colour=colors.red,
-                description="You are not connected to a **voice channel**."
-            )
-            await ctx.send(embed=embed)
-            return
+            raise VoiceExceptions.NotConnectedToVoice("You are not connected to a **voice channel**.")
 
         if ctx.channel != channels[ctx.guild.id]:
-            embed = discord.Embed(
-                colour=colors.red,
-                description=f"The player can only be controlled from **[{channels[ctx.guild.id]}]**."
-            )
-            await ctx.send(embed=embed)
-            return
+            raise VoiceExceptions.IncorrectControlChannel(f"The player can only be controlled from **[{channels[ctx.guild.id]}]**.")
 
-        player = get_player(ctx.guild.id)
+        player = music.get_player(guild_id=ctx.guild.id)
         if not player:
-            embed = discord.Embed(
-                colour=colors.red,
-                description="There is no **active player**."
-            )
-            await ctx.send(embed=embed)
-            return
+            raise VoiceExceptions.NoActivePlayer("There is no **active player**.")
 
         data = await player.skip(force=True)
-        update_player(ctx)
         await ctx.send(f"Skipping 🎶 **{data[0].name}**.")
 
     @commands.command()
     async def remove(self, ctx, index):
-        player = get_player(ctx.guild.id)
+        player = music.get_player(guild_id=ctx.guild.id)
         if not player:
-            embed = discord.Embed(
-                colour=colors.red,
-                description="There is no **active player**."
-            )
-            await ctx.send(embed=embed)
-            return
+            raise VoiceExceptions.NoActivePlayer("There is no **active player**.")
 
         if ctx.channel != channels[ctx.guild.id]:
-            embed = discord.Embed(
-                colour=colors.red,
-                description=f"The player can only be controlled from **[{channels[ctx.guild.id]}]**."
-            )
-            await ctx.send(embed=embed)
-            return
+            raise VoiceExceptions.IncorrectControlChannel(f"The player can only be controlled from **[{channels[ctx.guild.id]}]**.")
 
         try:
             song = await player.remove_from_queue(int(index))
+            await ctx.send(f"Removed 🎶 **{song.name}** from queue.")
         except:
             await ctx.send("Could not remove song from the queue, perhaps the queue is empty.")
-        update_player(ctx)
-        await ctx.send(f"Removed 🎶 **{song.name}** from queue.")
 
     @commands.command(aliases=['disconnect', 'dc'])
     async def leave(self, ctx):
         if not ctx.voice_client:
-            embed = discord.Embed(
-                colour=colors.red,
-                description="Not connected to a **voice channel**."
-            )
-            await ctx.send(embed=embed)
-            return
+            raise VoiceExceptions.NotConnectedToVoice("Not connected to a **voice channel**.")
 
         if ctx.channel != channels[ctx.guild.id]:
-            embed = discord.Embed(
-                colour=colors.red,
-                description=f"The player can only be controlled from **[{channels[ctx.guild.id]}]**."
-            )
-            await ctx.send(embed=embed)
-            return
+            raise VoiceExceptions.IncorrectControlChannel(f"The player can only be controlled from **[{channels[ctx.guild.id]}]**.")
 
         embed = discord.Embed(
             colour=colors.blue,
             description=f"Disconnected from **[{ctx.voice_client.channel.name}]** and unbound from **[{channels[ctx.guild.id].name}]**."
         )
 
-        player = get_player(ctx.guild.id)
+        player = music.get_player(guild_id=ctx.guild.id)
         if player:
-            players.pop(ctx.guild.id)
             await player.stop()
 
         await ctx.send(embed=embed)
@@ -401,14 +321,12 @@ class Voice(commands.Cog):
             "**Resetting player...**\n\nIf you are having difficulty in trying to control the **music player**, this might resolve the issue.",
             "**Resetting player...**\n\nIt seems like an error has occurred in your command. Hold on while I try to fix it for you."
         ]
-        player = get_player(ctx.guild.id)
-        if player:
-            players.pop(ctx.guild.id)
-            await player.stop()
 
-        true_player = music.get_player(guild_id=ctx.guild.id)
-        if true_player:
-            await true_player.stop()
+        player = music.get_player(guild_id=ctx.guild.id)
+        if player:
+            print(music.players)
+            await player.stop()
+            print(music.players)
 
         embed = discord.Embed(
             colour=colors.red,
@@ -443,23 +361,13 @@ class Voice(commands.Cog):
                 await ctx.send("Cancelling due to timeout")
                 return
 
-        player = get_player(ctx.guild.id)
+        player = music.get_player(guild_id=ctx.guild.id)
         if not player:
-            embed = discord.Embed(
-                colour=colors.red,
-                description="There is no **active player**."
-            )
-            await ctx.send(embed=embed)
-            return
+            raise VoiceExceptions.NoActivePlayer("There is no **active player**.")
 
         song = player.now_playing()
         if not song:
-            embed = discord.Embed(
-                colour=colors.red,
-                description="There is no **song** currently playing."
-            )
-            await ctx.send(embed=embed)
-            return
+            raise VoiceExceptions.EmptyQueue("There is no **song** currently playing.")
 
         with open(f"playlists/{ctx.author.id}.txt", 'a') as f:
             f.write(f"{song.name}<url>{song.url}\n")
@@ -502,19 +410,13 @@ class Voice(commands.Cog):
     @commands.command(aliases=['playfaves', 'pl', 'pf'])
     async def playliked(self, ctx, number=None):
         if not ctx.author.voice:
-            await ctx.send("Please connect to a voice channel first.")
-            return
+            raise VoiceExceptions.NotConnectedToVoice("Please connect to a voice channel first.")
 
         if not ctx.voice_client:
             await ctx.invoke(self.client.get_command('join'))
 
         if ctx.channel != channels[ctx.guild.id]:
-            embed = discord.Embed(
-                colour=colors.red,
-                description=f"The player can only be controlled from **[{channels[ctx.guild.id]}]**."
-            )
-            await ctx.send(embed=embed)
-            return
+            raise VoiceExceptions.IncorrectControlChannel(f"The player can only be controlled from **[{channels[ctx.guild.id]}]**.")
 
         with open(f"playlists/{ctx.author.id}.txt", 'r') as f:
             songs = f.read().splitlines()
@@ -523,20 +425,19 @@ class Voice(commands.Cog):
             try:
                 number = int(number) - 1
             except:
-                await ctx.send("Invalid song ID.")
-                return
+                raise VoiceExceptions.InvalidTitle("Invalid song ID.")
 
             title, url = songs[number].split("<url>")
             await ctx.invoke(self.client.get_command('play'), url=url)
-            update_player(ctx)
             return
 
+        player = music.get_player(guild_id=ctx.guild.id)
+
         titles = ""
-        i = 1
-        player = get_player(ctx.guild.id)
-        for song in songs:
+        for index, song in enumerate(songs):
             title, url = song.split("<url>")
-            titles = titles + f"`{i}` {title}\n"
+            titles = titles + f"`{index}` {title}\n"
+
             if not player:
                 player = music.create_player(ctx, ffmpeg_error_betterfix=True)
             if not player.now_playing():
@@ -544,8 +445,7 @@ class Voice(commands.Cog):
                 song = await player.play()
             else:
                 song = await player.queue(url, search=True)
-            i = i + 1
-        update_player(ctx)
+
         embed = discord.Embed(colour=colors.blue, title="❤️ Playing songs that you like", description=titles)
         await ctx.send(embed=embed)
 
