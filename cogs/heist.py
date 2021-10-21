@@ -163,7 +163,7 @@ class Heist(commands.Cog):
         levelup = data.get('levelup')
 
         if levelup:
-            self.levelup(ctx)
+            await self.levelup(ctx)
 
         await ctx.send(
             embed = discord.Embed(
@@ -182,7 +182,7 @@ class Heist(commands.Cog):
 
         levelup = data.get('levelup')
         if levelup:
-            self.levelup(ctx)
+            await self.levelup(ctx)
 
         await ctx.send(
             embed = discord.Embed(
