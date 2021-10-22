@@ -57,7 +57,7 @@ class Voice(commands.Cog):
             )
         )
 
-        if isinstance(error, discord.ClientException) and (ctx.command == self.client.get_command('play')):
+        if isinstance(error, discord.ClientException):
             console_log(f"MusicPlayer: An error occurred while controlling the player in {ctx.guild.name}")
 
             await ctx.invoke(self.client.get_command('resetplayer'), from_error=True)
@@ -95,15 +95,18 @@ class Voice(commands.Cog):
             console_log("MusicPlayer: Auto-disconnect timer started.")
             await asyncio.sleep(180)
 
+            user_count = len(guild.voice_client.channel.members)
             if user_count < 2:
                 embed = discord.Embed(
                     colour=colors.blue,
                     description=f"Disconnecting from **[{channel.name}]** since no one else is in the channel."
                 )
                 
-                channels.remove(channel)
+                channels.pop(member.guild.id)
                 await channel.send(embed=embed)                    
                 await member.guild.voice_client.disconnect()
+            else:
+                console_log("MusicPLayer: Auto-disconnect timer ended. There are users in the channel.")
 
     @commands.command(aliases=['toggleadc'])
     async def toggleautodisconnect(self, ctx):
@@ -248,7 +251,7 @@ class Voice(commands.Cog):
             raise VoiceExceptions.NoActivePlayer("There is no **active player**.")
 
         song, volume = await player.change_volume(vol / 100)
-        await ctx.send(f"Volume set to **{volume}** for **{song.name}**.")
+        await ctx.send(f"Volume set to **{int(volume * 100)}** for **{song.name}**.")
 
     @commands.command()
     async def pause(self, ctx):

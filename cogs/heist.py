@@ -95,7 +95,6 @@ class Heist(commands.Cog):
 
         if levelup:
             await self.levelup(ctx)
-
         
         embed = discord.Embed(
             description = f'You have earned **${amount}** and **{exp}** exp. Your new balance is **${cash}**.',
