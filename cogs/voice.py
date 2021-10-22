@@ -2,7 +2,6 @@ import discord
 import DiscordUtils
 import asyncio
 
-from discord.errors import ClientException
 import colors
 
 from discord.ext import commands
