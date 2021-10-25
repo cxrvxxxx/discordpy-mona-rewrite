@@ -95,7 +95,6 @@ class Heist(commands.Cog):
 
         if levelup:
             await self.levelup(ctx)
-
         
         embed = discord.Embed(
             description = f'You have earned **${amount}** and **{exp}** exp. Your new balance is **${cash}**.',
@@ -331,9 +330,14 @@ class Heist(commands.Cog):
             )
         )
 
-    @commands.command()
+    @commands.command(aliases=["dep"])
     async def deposit(self, ctx, amount):
         game = games.get(ctx.guild.id)
+
+        if amount == 'all':
+            user = User.get(game.conn, game.c, ctx.author.id)
+            amount = user.cash
+
         amount = game.deposit(ctx.author.id, amount)
 
         await ctx.send(
@@ -343,10 +347,14 @@ class Heist(commands.Cog):
             )
         )
     
-    @commands.command()
+    @commands.command(aliases=["take"])
     async def withdraw(self, ctx, amount):
         game = games.get(ctx.guild.id)
         amount = game.withdraw(ctx.author.id, amount)
+
+        if amount == 'all':
+            user = User.get(game.conn, game.c, ctx.author.id)
+            amount = user.cash
 
         await ctx.send(
             embed = discord.Embed(

@@ -9,7 +9,7 @@ class Whitelist(commands.Cog):
         self.client = client
         self.config = client.config
 
-    @commands.command()
+    @commands.command(aliases=["wl"])
     @commands.check(is_whitelisted)
     async def whitelist(self, ctx, member: discord.Member, access=0):
         config = self.config[ctx.guild.id]
@@ -17,6 +17,15 @@ class Whitelist(commands.Cog):
 
         author_level = config.getint(__name__, ctx.author.id)
         access = int(access)
+
+        if ctx.author == member:
+            await ctx.send(
+                embed = discord.Embed(
+                    description = "You cannot modify your own access level.",
+                    colour = colors.red
+                )
+            )
+            return
 
         # return if access is greater than author's access
         if author_level <= access:
@@ -37,7 +46,7 @@ class Whitelist(commands.Cog):
             )
         )
 
-    @commands.command()
+    @commands.command(aliases=["unwl"])
     @commands.check(is_whitelisted)
     async def unwhitelist(self, ctx, member: discord.Member):
         config = self.config[ctx.guild.id]
@@ -45,6 +54,15 @@ class Whitelist(commands.Cog):
 
         author_level = config.getint(__name__, ctx.author.id)
         target_level = config.getint(__name__, member.id)
+
+        if ctx.author == member:
+            await ctx.send(
+                embed = discord.Embed(
+                    description = "You cannot modify your own access level.",
+                    colour = colors.red
+                )
+            )
+            return
 
         # return if access is greater than author's access
         if author_level <= target_level:

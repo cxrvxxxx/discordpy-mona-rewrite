@@ -47,7 +47,7 @@ class Admin(commands.Cog):
 
         await ctx.send(embed=embed)
 
-    @commands.command()
+    @commands.command(aliases=["rc"])
     @commands.check(is_whitelisted)
     async def reloadcog(self, ctx, name):
         required_access = 3
