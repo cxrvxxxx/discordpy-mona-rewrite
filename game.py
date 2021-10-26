@@ -96,6 +96,10 @@ class Game:
         # ensure argument type
         multiplier = float(multiplier)
 
+        #define limits
+        upper_limit = round(target.cash * 0.20)
+        lower_limit = 1
+
         # validation
         if not user:
             raise GameExceptions.UserNotFound("You must be registered to do this.")
@@ -103,10 +107,12 @@ class Game:
             raise GameExceptions.UserNotFound("User is not registered.")
         if target.cash <= 0:
             raise GameExceptions.InvalidRobTarget("This person has nothing you can take")
+        if upper_limit >= lower_limit:
+            raise GameExceptions.InvalidAmount("Could not rob this user.")
 
         has_perk = self.use_rob_charge(author_id)
 
-        amount = round(random.randint(1, round(target.cash * 0.20)) * multiplier)
+        amount = round(random.randint(0, upper_limit) * multiplier)
         x = random.randint(0, 100)
 
         if has_perk:
