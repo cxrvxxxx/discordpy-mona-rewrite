@@ -30,6 +30,22 @@ class Admin(commands.Cog):
         console_log(f"Error occurred while executing command: '{ctx.command}' in {ctx.guild.name}/{ctx.channel.name}: {type(error)}: {error}")
 
     @commands.command()
+    async def adminhelp(self, ctx):
+        commands = {
+            "cogs": "List all loaded modules",
+            "(r)reload(c)og <name>": "Reload the specified module.",
+            "(r)estart": "Restarts the bot."
+        }
+
+        embed = discord.Embed(
+            title = "Admin Commands",
+            description = "".join([f"**${key}**\n{value}\n\n" for key, value in commands.items()]),
+            colour = colors.blue
+        )
+
+        await ctx.send(embed=embed)
+
+    @commands.command()
     @commands.check(is_whitelisted)
     async def cogs(self, ctx):
         required_access = 3
@@ -40,7 +56,7 @@ class Admin(commands.Cog):
         embed = discord.Embed(
             title = "Modules",
             description = "".join(
-                [f"{index}: **{name[0].upper() + name[1:]}**\n" for index, name in enumerate(cog_names, start=1)]
+                [f"{index}: **{name[0].upper() + name[1:]}**\n" for index, name in enumerate(self.client.cogs, start=1)]
             ),
             colour = colors.blue
         )

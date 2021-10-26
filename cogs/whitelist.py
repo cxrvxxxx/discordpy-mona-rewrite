@@ -9,6 +9,22 @@ class Whitelist(commands.Cog):
         self.client = client
         self.config = client.config
 
+    @commands.command()
+    async def wlhelp(self, ctx):
+        commands = {
+            "(w)hite(l)ist <@user> <level>": "Add user to the whitelist.",
+            "(unw)hite(l)ist <@user>": "Remove user from the whitelist.",
+            "myaccess": "Check your access level."
+        }
+
+        embed = discord.Embed(
+            title = "Whitelist Commands",
+            description = "".join([f"**${key}**\n{value}\n\n" for key, value in commands.items()]),
+            colour = colors.blue
+        )
+
+        await ctx.send(embed=embed)
+
     @commands.command(aliases=["wl"])
     @commands.check(is_whitelisted)
     async def whitelist(self, ctx, member: discord.Member, access=0):

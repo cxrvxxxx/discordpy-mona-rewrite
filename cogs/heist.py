@@ -1,6 +1,7 @@
 import discord
 import colors
 import asyncio
+import DiscordUtils
 
 from discord.ext import commands
 from game import Game, User, Perk, GameExceptions, Bank
@@ -43,6 +44,67 @@ class Heist(commands.Cog):
         # init game
         for guild in self.client.guilds:
             games[guild.id] = Game(guild.id)
+
+    @commands.command()
+    async def economy(self, ctx):
+        commands = {
+            "register": "Grants you access to Mona Heist.",
+            "(w)ork": "Earn money and exp every five minutes. Scales with level.",
+            "rob @user": "Take someone's money. Has a chance to get caught and fined instead.",
+            "donate @user <amount>": "Give someone cash and earn exp. Has a cooldown of 30 seconds.",
+            "gamble <amount>": "Get a chance to double your money, or lose double.",
+            "charity <amount>": "Donate to charity and receive exp.",
+            "profile @user": "View user profile."
+        }
+        perk_commands = {
+            "perk": "View your perks.",
+            "shop": "List of perks that can be purchased.",
+            "buy <ID> <amount>": "Buy perks from the shop"			
+        }
+        bank_commands = {
+            "bank": "View your bank balance.",
+            "(dep)osit <amount>": "Deposit cash to your bank account.",
+            "take <amount>": "Take cash from your bank account.",
+            "transfer @user <amount>": "Transfer money to another user's bank account."
+        }
+
+        frontpage = discord.Embed(
+            colour=colors.blue,
+            title="Mona Heist",
+            description="Economy System v2.1"
+        )
+        frontpage.add_field(
+            name="Commands",
+            value="".join([f"**${key}**\n{value}\n\n" for key, value in commands.items()])
+        )
+        frontpage.set_thumbnail(url="https://i.imgur.com/nGaddfb.png")
+
+        perks = discord.Embed(
+            colour=colors.blue,
+            title="Mona Heist",
+            description="Economy System v2.1"
+        )
+        perks.add_field(
+            name="Perk Commands",
+            value="".join([f"**${key}**\n{value}\n\n" for key, value in perk_commands.items()])
+        )
+        perks.set_thumbnail(url="https://i.imgur.com/nGaddfb.png")
+
+        bank = discord.Embed(
+            colour=colors.blue,
+            title="Mona Heist",
+            description="Economy System v2.1"
+        )
+        bank.add_field(
+            name="Bank Commands",
+            value="".join([f"**${key}**\n{value}\n\n" for key, value in bank_commands.items()])
+        )
+        bank.set_thumbnail(url="https://i.imgur.com/nGaddfb.png")
+
+        embeds = [frontpage, perks, bank]
+        paginator = DiscordUtils.Pagination.AutoEmbedPaginator(ctx)
+        
+        await paginator.run(embeds)
 
     @commands.command()
     async def register(self, ctx):

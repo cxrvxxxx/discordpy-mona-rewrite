@@ -35,6 +35,22 @@ class Greeter(commands.Cog):
             await channel.send(default_greet_message + custom_message)
 
     @commands.command()
+    async def greeterhelp(self, ctx):
+        commands = {
+            "setgreeting <message>": "Sets the welcome message.",
+            "setgreetmode": "Enable/disable the use of custom welcome messages.",
+            "setgreetchannel": "Use the current channel for welcome messages."
+        }
+
+        embed = discord.Embed(
+            title = "Greeter Commands",
+            description = "".join([f"**${key}**\n{value}\n\n" for key, value in commands.items()]),
+            colour = colors.blue
+        )
+
+        await ctx.send(embed=embed)
+
+    @commands.command()
     @commands.has_permissions(manage_channels=True)
     async def setgreeting(self, ctx, *, message):
         config = self.config[ctx.guild.id]
