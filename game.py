@@ -405,7 +405,7 @@ class User:
 
             while self.exp > self.exp_to_levelup:
                 max_exp = self.exp_to_levelup
-                self.exp = self.exp = max_exp
+                self.exp = self.exp - max_exp
                 self.level = self.level + 1
         else:
             levelup = False
